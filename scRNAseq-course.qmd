@@ -1,0 +1,361 @@
+---
+title: "Single-Cell RNA-Seq Analysis with Seurat"
+author: "PS"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+# 1. Introduction to Single-Cell RNA Sequencing (scRNA-seq)
+
+## Overview of scRNA-seq Technology
+
+Single-cell RNA sequencing (scRNA-seq) is a powerful technology that allows for the study of gene expression at the level of individual cells. Compared to bulk RNA sequencing, scRNA-seq provides insights into the heterogeneity within cell populations.
+
+## scRNA-seq Workflow
+
+The typical workflow for scRNA-seq analysis includes: 1. Data loading and quality control 2. Normalization and scaling 3. Dimensionality reduction 4. Clustering and cell-type identification 5. Differential expression analysis
+
+------------------------------------------------------------------------
+
+# 2. Setting Up the Environment
+
+### Required Packages
+
+Before starting, ensure you have the following packages installed:
+
+```{r setup, eval=FALSE}
+# Install required packages
+#install.packages("Seurat")
+#install.packages("dplyr")
+#install.packages("ggplot2")
+#install.packages("robostbase")
+#install.packages("scater")
+#install.packages("DoubletFinder")
+#install.packages("skimr")
+#install.packages("harmony")
+
+```
+
+### Loading Packages
+
+```{r load-libraries, message=FALSE}
+# Load libraries
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+library(robustbase)
+library(scater)
+library(DoubletFinder)
+library(skimr)
+library(harmony)
+
+
+sampleColors <-  c("#2A363B", "#019875", "#99B898", "#FECEA8", "#FF847C", "#E84A5F", "#C0392B", "#96281B","#B0C4B1", "#D9A441", "#577284", "#4A235A", "#D7BDE2", "#8C6E63")
+
+
+
+```
+
+------------------------------------------------------------------------
+
+# 3. Loading and Preprocessing Data
+
+In this section, we will load a sample dataset and perform quality control to filter out low-quality cells.
+
+### Loading Data
+
+We will use the **da_diff** dataset, a data set of dopaminergic neuron differentation at three timepoints sequenced using 10x Genomics. The data set comes from this [publication](https://pubmed.ncbi.nlm.nih.gov/33445654/).
+
+```{r load-data}
+
+#
+# Load example dataset
+#
+
+# List all directories within the "data/" directory, excluding the top-level "data/" itself.
+dirs <- list.dirs("data/")[-1]
+
+# Rename each directory by removing the "data/FGF8plus_" 
+# prefix from the directory names.
+# This step makes sure that the "orig.ident" variable in your Seurat object will be informaticve.
+names(dirs) <- gsub("data//FGF8plus_", "", dirs)
+
+# Read in the 10X Genomics data from each specified directory in 'dirs'.
+# The 'Read10X' function reads the gene expression count data for each sample into one large matrix
+da_diff.data <- Read10X(data.dir = dirs)
+
+# Create a Seurat object with the count data. This is an essential structure in Seurat for
+# storing and analyzing single-cell RNA-seq data.
+# - 'min.cells = 3' filters out genes not expressed in at least 3 cells.
+# - 'min.features = 200' filters out cells that have fewer than 200 detected genes.
+da_diff <- CreateSeuratObject(counts = da_diff.data, min.cells = 3, min.features = 200)
+```
+
+### Quality Control
+
+A number of factors should be examined before downstream analyses, many of which we’ll address here:
+
+-   Low library size: When cells are very degraded or absent from the library preparation, the number of reads sequenced from that library will be very low. It’s important to remove these cells from downstream analyses.
+
+-   Low number of expressed genes: A low number of expressed genes (which is highly correlated with low library size) may be a result of poor-quality cells (e.g. dying, degraded, damaged, etc.), followed by high PCR amplification of the remaining RNA. Again, these cells should be removed from downstream analyses.
+
+-   High mitochondrial gene content: High concentrations of mitochondrial genes is often a result of damaged cells where the endogenous RNA escapes or degrades. As mitochondria has its own cell membranes, it is often the last DNA/RNA in damaged cells to degrade and hence occurs in high quantities during sequencing.
+
+    Fraction of reads originating from the mitochondria will be heavily dependent on if you're sequencing cells or nuclei. mtRNA should not be present in nuclei preparations and is usually \< 0.1%. For scRNA-seq 5-10% can be considered.
+
+-   Batch effect: Large scRNA-seq projects usually need to generate data across multiple batches due to logistical constraints. However, the processing of different batches is often subject to variation, e.g., changes in operator, differences in reagent quality and concentration, the sequencing machine used, etc. This results in systematic differences in the observed expression in cells from different batches, which we refer to as “batch effects”. Batch effects are problematic as they can be major drivers of variation in the data, masking the relevant biological differences and complicating interpretation of the results.
+
+#### Level 1 QC with Seurat
+
+```{r quality-control}
+# Calculate the percentage of mitochondrial genes
+da_diff[["percent.mt"]] <- PercentageFeatureSet(da_diff, pattern = "^MT-")
+
+# Visualize QC metrics
+VlnPlot(da_diff, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3,pt.size = 0)+geom_hline(yintercept = 5, linetype = "dashed") + ggtitle("Quality Control Metrics") & scale_fill_manual(values=sampleColors)
+
+```
+
+Identifiyng reasonable cutoffs for filtering
+
+Perform quality control by calculating the percentage of mitochondrial genes and filtering cells.
+
+```{r quality-control2}
+
+library(robustbase)
+library(scater)
+
+stats <- cbind(da_diff$percent.mt,da_diff$nFeature_RNA,
+               da_diff$nCount_RNA)
+
+
+da_diff$outlying <- adjOutlyingness(stats, only.outlyingness = TRUE)
+outlier <- isOutlier(da_diff$outlying, type = "higher")
+summary(outlier)
+
+da_diff$is.outlier <- outlier
+
+
+da_diff@meta.data %>% ggplot(aes(x=nFeature_RNA, y=nCount_RNA, color=is.outlier)) + geom_point(alpha=.6) + scale_color_manual(values=c(sampleColors))+facet_wrap(~orig.ident)+theme_minimal()
+
+da_diff@meta.data %>% group_by(is.outlier) %>% skimr::skim()
+
+```
+
+### Doublet Removal
+
+Doublets occur when two cells are captured together during single-cell RNA sequencing, leading to artificial readouts that can distort the analysis. Detecting and removing doublets is essential to ensure the integrity of downstream analyses, as they can introduce noise and misleading biological signals.
+
+In tissues with distinct cell types, such as the brain, cells can be categorized into well-defined populations based on specific gene expression profiles. Each cell type has unique markers that facilitate the identification of doublets, as the combination of two different cell types will typically produce a distinct expression profile that can be detected by computational methods. For example, if a doublet is formed between a neuron and a glial cell, the resulting expression profile may reveal markers from both cell types, allowing for effective identification.
+
+In contrast, datasets with continuous maturation feature cells that may share similar gene expression profiles but exist at different developmental stages or functional states. For instance, in a dataset capturing the maturation of immune cells, the transitional states between precursor cells and fully mature cells can be subtle, making it difficult to distinguish between single cells and doublets based on gene expression alone. The absence of distinct markers complicates the identification process, as the expected combined expression patterns of doublets may closely resemble those of mature cells.
+
+#### Identifying and Removing Doublets
+
+One common approach to identify doublets is using the **DoubletFinder** package in R. Below is a script demonstrating how to use **Seurat** to identify and filter out doublets from your dataset. For this analysis with need to normalize and scale the data and also perform dimensionality reduction. We will cover these in more detail later.
+
+```{r}
+# Normalize data
+da_diff <- NormalizeData(da_diff)
+da_diff <- FindVariableFeatures(da_diff)
+da_diff <- ScaleData(da_diff)
+da_diff <- RunPCA(da_diff, verbose=FALSE)
+
+# Perform doublet detection
+da_diff <- doubletFinder_v3(da_diff, 
+                                   PCs = 1:20,
+                                   pK = 0.1, 
+                                   nExp = round(0.05 * ncol(da_diff)), 
+                                   reuse.pANN = FALSE)
+
+
+da_diff@meta.data %>% ggplot(aes(x=nFeature_RNA, y=nCount_RNA, color=`DF.classifications_0.25_0.1_993`)) + geom_point() + scale_color_manual(values=c("black", "red"))+facet_wrap(~orig.ident)
+
+```
+
+#### Removing Doublets using scDblFinder
+
+```{r}
+
+library(SingleCellExperiment)
+library(scDblFinder)
+
+# Convert Seurat object to SingleCellExperiment
+da_diff.sce <- as.SingleCellExperiment(da_diff)
+
+# Run scDblFinder to identify doublets
+da_diff.sce <- scDblFinder(da_diff.sce)
+
+# Add doublet information to the Seurat object metadata
+da_diff$scdblfinder.doublet_scores <- colData(da_diff.sce)$scDblFinder.score
+da_diff$scdblfinder.predicted_doublet <- colData(da_diff.sce)$scDblFinder.class
+
+# Visualize doublet scores
+
+# Create a combined column to show overlap in predictions
+da_diff$DoubletComparison <- ifelse(
+  da_diff$DF.classifications_0.25_0.1_993 == "Doublet" & da_diff$scdblfinder.predicted_doublet == "doublet", "Both",
+  ifelse(da_diff$scdblfinder.predicted_doublet == "doublet", "scDblFinder Only",
+  ifelse(da_diff$DF.classifications_0.25_0.1_993 == "Doublet", "DoubletFinder Only", "Neither"))
+)
+
+
+# Scatter plot comparing doublet scores
+ggplot(da_diff@meta.data, aes(x = scdblfinder.doublet_scores, y = pANN_0.25_0.1_993)) +
+  geom_point(aes(color = DoubletComparison), alpha = 0.7) +
+  labs(title = "Doublet Score Comparison: scDblFinder vs DoubletFinder",
+       x = "scDblFinder Score", y = "DoubletFinder Score") +
+  scale_color_manual(values = c("Both" = "purple", "scDblFinder Only" = "blue", "DoubletFinder Only" = "red", "Neither" = "grey")) +
+  theme_minimal()
+
+```
+
+### Final Outlier Filtering
+
+After identifying potential outliers and doublets, we can apply a final filtering step to exclude cells that are flagged as low quality or ambiguous. This final filter removes cells based on the previously calculated outlier status and doublet classification, ensuring that only high-quality, single-cell data remains for downstream analyses.
+
+```{r}
+# Final filtering step to remove outliers and doublets
+# Filter out cells that were flagged as outliers or doublets
+da_diff.filter<- subset(da_diff, subset = !outlier & DoubletComparison != "Both")
+
+# Summary of cells retained after filtering
+print(paste("Number of cells retained after final filtering:", ncol(da_diff.filter)))
+```
+
+------------------------------------------------------------------------
+
+# 4. Normalization and Scaling
+
+Normalization, finding variable features, and scaling are essential preprocessing steps to prepare the data for downstream analysis. Normalization corrects for differences in sequencing depth between cells, typically by transforming the raw counts into counts per cell or counts per million (CPM), followed by log transformation. This step ensures that expression levels are comparable across cells.
+
+Finding variable features identifies genes with significant expression variability across cells, which is important because these genes often capture biologically meaningful patterns, while others contribute more noise. Variable features are selected based on metrics like variance or mean-variance relationships, providing a focused subset of genes for analysis. Scaling centers and scales the expression data, often by subtracting the mean and dividing by the standard deviation of each gene across cells. This step standardizes the gene expression values, making it easier to compare cell-to-cell variation and enhancing the performance of algorithms used in downstream analyses like dimensionality reduction and clustering. Together, these steps improve the accuracy and interpretability of scRNA-seq data.
+
+The **ScaleData** function is used to scale and center expression data. This process standardizes the data by shifting the distribution of each gene’s expression across cells to have a mean of zero and a standard deviation of one. ScaleData adjusts for cell-to-cell variability by centering and scaling each gene individually. Using ScaleData is particularly useful for analyses like PCA, which are sensitive to differences in gene variance. It also has the flexibility to regress out certain sources of variation, such as mitochondrial gene content, cell cycle phase, or other unwanted sources of noise.
+
+```{r normalization}
+# Normalize data
+da_diff.filter <- NormalizeData(da_diff)
+  
+# Identify highly variable features
+da_diff.filter <- FindVariableFeatures(da_diff.filter, selection.method = "vst", nfeatures = 2000)
+
+VariableFeaturePlot(da_diff.filter) %>% 
+  LabelPoints(points = head(VariableFeatures(da_diff.filter),n=20), repel = TRUE)
+
+# Scaling data
+da_diff.filter <- ScaleData(da_diff.filter)
+
+```
+
+------------------------------------------------------------------------
+
+# 5. Dimensionality Reduction and Clustering
+
+### Principal Component Analysis (PCA)
+
+After quality control, filtering and normalization, the next step in single-cell RNA sequencing analysis is usually to explore the structure of the data by grouping similar cells and visualizing these groupings in a reduced-dimensional space. This is achieved through **dimensionality reduction** and **clustering**.
+
+Dimensionality reduction techniques help to condense complex, high-dimensional scRNA-seq data into fewer dimensions, making it easier to identify patterns and relationships among cells. Clustering algorithms then group cells with similar gene expression profiles, revealing potential cell types or states present in the dataset.
+
+**Principal Component Analysis (PCA)** is one of the most commonly used dimensionality reduction methods in scRNA-seq analysis. PCA transforms the data by identifying principal components, which capture the axes of maximum variance in the data, thereby highlighting major sources of variation. Here, we run PCA on the filtered dataset using the most variable genes to capture the essential features of the data, selecting 50 principal components (PCs) to examine. The ElbowPlot function helps determine the number of PCs to retain by visualizing the point where adding more components provides diminishing returns in variance explained.
+
+```{r pca}
+# Run PCA
+da_diff.filter <- RunPCA(da_diff.filter, 
+                         features = VariableFeatures(object = da_diff.filter),
+                        npcs = 50,
+                        verbose = FALSE)
+
+# Visualize PCA
+ElbowPlot(da_diff.filter, ndims = 50)
+
+```
+
+### Clustering and Visualization
+
+Once we have a reduced representation of the data from PCA, we proceed with clustering to group cells based on their similarity. In this workflow, we use the `FindNeighbors` function to calculate the local neighborhood structure of cells based on their PCA coordinates, followed by `FindClusters` to assign each cell to a cluster. The resolution parameter is set to 0.5 to control the granularity of clusters, with higher values yielding more clusters.
+
+In constructing the local neighborhood structure, `FindNeighbors` employs a **Shared Nearest Neighbor (SNN)** approach to refine the clustering accuracy. The SNN method goes beyond simple k-nearest neighbors by assessing the overlap of each cell’s neighborhood with those of other cells. Cells are considered more similar if they share multiple nearest neighbors, resulting in a **weighted graph** that highlights stronger connections between cells with high shared neighbor counts. This added layer of similarity enhances clustering stability by prioritizing dense regions of cells that share local neighborhoods, thereby emphasizing biologically relevant groupings in complex data.
+
+To visualize these clusters, we apply Uniform Manifold Approximation and Projection (UMAP), which provides a 2D projection of the data, preserving local and some global structure in the clustering. The UMAP plot provides an intuitive visual of how cells are grouped, making it easier to explore potential cell types or states within the dataset.
+
+```{r clustering}
+# Find clusters
+da_diff.filter <- FindNeighbors(da_diff.filter, dims = 1:10)
+da_diff.filter <- FindClusters(da_diff.filter, resolution = 0.5)
+
+# Run UMAP for visualization
+da_diff.filter <- RunUMAP(da_diff.filter, dims = 1:10)
+DimPlot(da_diff.filter, reduction = "umap", group.by = "seurat_clusters")+DimPlot(da_diff.filter, group.by = "orig.ident", reduction = "umap",cols = sampleColors)
+
+```
+
+### Integration Using Harmony
+When analyzing multiple datasets or batches, it’s crucial to account for batch effects that can obscure biological signals. The harmony algorithm provides an effective approach to integrating data from different sources while controlling for these batch effects.
+
+Harmony works by iteratively adjusting the embeddings of cells in a lower-dimensional space, aligning them based on shared biological variation while minimizing differences caused by batch effects. This is achieved through a low-rank approximation of the data, which allows for the simultaneous consideration of both biological and technical sources of variation.
+
+To integrate datasets using Harmony, we start by running PCA on each dataset separately. Once we have the PCA embeddings, we can pass them to the RunHarmony function, specifying the variable that represents the batch or dataset. Harmony then re-embeds the cells, producing a new PCA representation that mitigates batch effects while retaining the biological structure.
+
+After integrating the datasets with Harmony, we can proceed with clustering and visualization using the adjusted embeddings. This integration enhances the robustness of downstream analyses, allowing for more accurate identification of cell types or states across datasets, and ensuring that biological signals are not overshadowed by batch variability.
+
+```{r harmony-integration}
+
+# Integrate using Harmony
+da_integrated <- RunHarmony(da_diff.filter, group.by.vars = "orig.ident")
+
+# Proceed with clustering and visualization on the Harmony-adjusted embeddings
+da_integrated <- FindNeighbors(da_integrated, dims = 1:30)
+da_integrated <- FindClusters(da_integrated, resolution = 0.5)
+da_integrated <- RunUMAP(da_integrated, reduction = "harmony", dims = 1:30)
+
+# Visualize the integrated data
+DimPlot(da_integrated, reduction = "umap", group.by = "seurat_clusters") +
+DimPlot(da_integrated, group.by = "orig.ident", reduction = "umap", cols = sampleColors)
+
+```
+------------------------------------------------------------------------
+
+# 6. Finding Markers and Annotating Clusters
+
+### Identifying Marker Genes
+
+```{r markers}
+# Find markers for each cluster
+da_diff.markers <- FindAllMarkers(da_diff, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+top3percondition <- da_diff.markers %>% group_by(cluster) %>% top_n(3, avg_log2FC) %>% arrange(cluster, avg_log2FC) 
+
+```
+
+### Visualizing Marker Expression
+
+```{r marker-visualization}
+# Violin plot for selected marker genes
+VlnPlot(da_diff, features = top3percondition[,"gene"] %>% pull(),pt.size = 0,ncol = 3)&scale_fill_manual(values=sampleColors)
+
+```
+
+------------------------------------------------------------------------
+
+# 7. Differential Expression Analysis
+
+```{r differential-expression}
+# Perform differential expression analysis between clusters
+cluster1_vs_cluster2 <- FindMarkers(da_diff, ident.1 = 1, ident.2 = 2, min.pct = 0.25)
+head(cluster1_vs_cluster2)
+```
+
+------------------------------------------------------------------------
+
+# 8. Custom Visualizations
+
+```{r custom-plot}
+# Customize UMAP with cluster annotations
+DimPlot(da_diff, reduction = "umap", label = TRUE) + ggtitle("UMAP with Cluster Labels")
+```
+
+# Conclusion
+
+In this tutorial, we've covered the fundamentals of scRNA-seq data analysis using Seurat, from loading and preprocessing data to clustering and marker identification. For further learning, explore the [Seurat documentation](https://satijalab.org/seurat/) and try using your own dataset.
