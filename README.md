@@ -57,6 +57,8 @@ git clone https://github.com/your_username/scRNA-seq-analysis.git
 cd scRNA-seq-analysis
 ```
 
+If you dont have git installed you can download the course content by clicking the green "code" button and selecting "Download ZIP".
+
 2.  Open the R script and follow the instructions for analyzing your scRNA-seq data.
 
 ## License
@@ -65,4 +67,4 @@ This project is licensed under the MIT License.
 
 ## Author
 
-PS
+Petter Storm
