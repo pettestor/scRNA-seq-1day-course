@@ -2,14 +2,21 @@
 title: "Single-Cell RNA-Seq Analysis with Seurat"
 author: "PS"
 date: "`r Sys.Date()`"
-output: pdf_document
+editor:
+  markdown:
+    wrap: 72
+format:
+  html:
+    code-copy: true
 ---
 
 # 1. Introduction to Single-Cell RNA Sequencing (scRNA-seq)
 
-## Overview of scRNA-seq Technology
+A variety of toolkits and analytical frameworks have been developed to facilitate scRNA-seq data analysis. Among the most widely used are Seurat, created by Rahul Satija's lab for R, and scanpy, developed by Fabian Theis's lab for Python. Both provide robust functions and extensive parameter sets that cover many of the routine analyses commonly performed on scRNA-seq data. However, it's essential to recognize that these frameworks may not encompass all possible analyses, so exploring additional tools can broaden the scope of your data insights.
 
-Single-cell RNA sequencing (scRNA-seq) is a powerful technology that allows for the study of gene expression at the level of individual cells. Compared to bulk RNA sequencing, scRNA-seq provides insights into the heterogeneity within cell populations.
+In this tutorial, aimed at beginners, we will primarily focus on using Seurat to analyze scRNA-seq data in R. Throughout this tutorial, we’ll introduce some additional tools that offer complementary functionalities beyond Seurat’s capabilities.
+
+This tutorial assumes that preprocessing steps—such as base calling, mapping, and read counting—have already been completed. For data generated with the 10x Genomics Chromium Single Cell Gene Expression Solution, the Cell Ranger pipeline from 10x Genomics is commonly used, resulting in a count matrix. If your data is from a different technology (e.g., well-based experiments like Smart-Seq2), the Cell Ranger pipeline may not be applicable, and an alternative method will be required to generate the count matrix.
 
 ## scRNA-seq Workflow
 
@@ -25,14 +32,9 @@ Before starting, ensure you have the following packages installed:
 
 ```{r setup, eval=FALSE}
 # Install required packages
-#install.packages("Seurat")
-#install.packages("dplyr")
-#install.packages("ggplot2")
-#install.packages("robostbase")
-#install.packages("scater")
-#install.packages("DoubletFinder")
-#install.packages("skimr")
-#install.packages("harmony")
+
+install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", 
+                   "scater", "DoubletFinder", "harmony"))
 
 ```
 
@@ -46,11 +48,16 @@ library(ggplot2)
 library(robustbase)
 library(scater)
 library(DoubletFinder)
-library(skimr)
 library(harmony)
+library(patchwork)
+library(scRNAseq)
+library(SingleR)
+library(tibble)
+library(viridis)
 
-
-sampleColors <-  c("#2A363B", "#019875", "#99B898", "#FECEA8", "#FF847C", "#E84A5F", "#C0392B", "#96281B","#B0C4B1", "#D9A441", "#577284", "#4A235A", "#D7BDE2", "#8C6E63")
+sampleColors <-  c("#2A363B", "#019875", "#99B898", "#FECEA8", "#FF847C", "#E84A5F",
+                   "#C0392B", "#96281B","#B0C4B1", "#D9A441", "#577284", "#4A235A", 
+                   "#D7BDE2", "#8C6E63")
 
 
 
@@ -60,25 +67,18 @@ sampleColors <-  c("#2A363B", "#019875", "#99B898", "#FECEA8", "#FF847C", "#E84A
 
 # 3. Loading and Preprocessing Data
 
-In this section, we will load a sample dataset and perform quality control to filter out low-quality cells.
+In this section, we will load a sample dataset and perform quality control to filter out low-quality and doublet cells.
 
 ### Loading Data
 
-We will use the **da_diff** dataset, a data set of dopaminergic neuron differentation at three timepoints sequenced using 10x Genomics. The data set comes from this [publication](https://pubmed.ncbi.nlm.nih.gov/33445654/).
+We will use the four midbrain organoid samples sequenced using 10X scRNA-seq at two timepoints. The data set comes from this [publication](https://pubmed.ncbi.nlm.nih.gov/33445654/).
 
 ```{r load-data}
-
-#
-# Load example dataset
-#
-
 # List all directories within the "data/" directory, excluding the top-level "data/" itself.
-dirs <- list.dirs("data/")[-1]
+dirs <- list.dirs("../scRNAseq-course/data/organoids/")[-1]
 
-# Rename each directory by removing the "data/FGF8plus_" 
-# prefix from the directory names.
 # This step makes sure that the "orig.ident" variable in your Seurat object will be informaticve.
-names(dirs) <- gsub("data//FGF8plus_", "", dirs)
+names(dirs) <- c("day60-1","day60-2", "day30-1","day30-2")
 
 # Read in the 10X Genomics data from each specified directory in 'dirs'.
 # The 'Read10X' function reads the gene expression count data for each sample into one large matrix
@@ -112,34 +112,38 @@ A number of factors should be examined before downstream analyses, many of which
 da_diff[["percent.mt"]] <- PercentageFeatureSet(da_diff, pattern = "^MT-")
 
 # Visualize QC metrics
-VlnPlot(da_diff, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3,pt.size = 0)+geom_hline(yintercept = 5, linetype = "dashed") + ggtitle("Quality Control Metrics") & scale_fill_manual(values=sampleColors)
-
+VlnPlot(da_diff, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
+        ncol = 3,pt.size = 0)+geom_hline(yintercept = 5, linetype = "dashed") & scale_fill_manual(values=sampleColors)
 ```
 
-Identifiyng reasonable cutoffs for filtering
+#### Automated identification of cutoffs for filtering
 
-Perform quality control by calculating the percentage of mitochondrial genes and filtering cells.
 
 ```{r quality-control2}
+# Create a matrix of selected statistics from da_diff for analysis
+stats <- cbind(da_diff$percent.mt, da_diff$nFeature_RNA, da_diff$nCount_RNA)
 
-library(robustbase)
-library(scater)
-
-stats <- cbind(da_diff$percent.mt,da_diff$nFeature_RNA,
-               da_diff$nCount_RNA)
-
-
+# Calculate outlyingness scores for each cell based on the selected statistics
+# only.outlyingness = TRUE returns only the outlyingness values
 da_diff$outlying <- adjOutlyingness(stats, only.outlyingness = TRUE)
+
+# Identify cells that are statistical outliers based on high outlyingness scores
 outlier <- isOutlier(da_diff$outlying, type = "higher")
+
+# Summarize the number of outliers identified
 summary(outlier)
 
+# Add a column to da_diff indicating if each cell is an outlier
 da_diff$is.outlier <- outlier
 
-
-da_diff@meta.data %>% ggplot(aes(x=nFeature_RNA, y=nCount_RNA, color=is.outlier)) + geom_point(alpha=.6) + scale_color_manual(values=c(sampleColors))+facet_wrap(~orig.ident)+theme_minimal()
-
-da_diff@meta.data %>% group_by(is.outlier) %>% skimr::skim()
-
+# Plot nFeature_RNA against nCount_RNA, coloring points by outlier status
+# Facet by 'orig.ident' to visualize each sample separately
+da_diff@meta.data %>% 
+  ggplot(aes(x = nFeature_RNA, y = nCount_RNA, color = is.outlier)) + 
+  geom_point(alpha = 0.6) + 
+  scale_color_manual(values = c(sampleColors)) + 
+  facet_wrap(~orig.ident) + 
+  theme_minimal()
 ```
 
 ### Doublet Removal
@@ -152,7 +156,7 @@ In contrast, datasets with continuous maturation feature cells that may share si
 
 #### Identifying and Removing Doublets
 
-One common approach to identify doublets is using the **DoubletFinder** package in R. Below is a script demonstrating how to use **Seurat** to identify and filter out doublets from your dataset. For this analysis with need to normalize and scale the data and also perform dimensionality reduction. We will cover these in more detail later.
+One common approach to identify doublets is using the **DoubletFinder** package in R. Below is a script demonstrating how to use this method on your Seurat object to identify and filter out doublets from your dataset. For this analysis with need to normalize and scale the data and also perform dimensionality reduction. We will cover these in more detail later.
 
 ```{r}
 # Normalize data
@@ -169,7 +173,7 @@ da_diff <- doubletFinder_v3(da_diff,
                                    reuse.pANN = FALSE)
 
 
-da_diff@meta.data %>% ggplot(aes(x=nFeature_RNA, y=nCount_RNA, color=`DF.classifications_0.25_0.1_993`)) + geom_point() + scale_color_manual(values=c("black", "red"))+facet_wrap(~orig.ident)
+da_diff@meta.data %>% ggplot(aes(x=nFeature_RNA, y=nCount_RNA, color=`DF.classifications_0.25_0.1_508`)) + geom_point() + scale_color_manual(values=c("black", "red"))+facet_wrap(~orig.ident+DF.classifications_0.25_0.1_508)
 
 ```
 
@@ -194,14 +198,14 @@ da_diff$scdblfinder.predicted_doublet <- colData(da_diff.sce)$scDblFinder.class
 
 # Create a combined column to show overlap in predictions
 da_diff$DoubletComparison <- ifelse(
-  da_diff$DF.classifications_0.25_0.1_993 == "Doublet" & da_diff$scdblfinder.predicted_doublet == "doublet", "Both",
+  da_diff$DF.classifications_0.25_0.1_508 == "Doublet" & da_diff$scdblfinder.predicted_doublet == "doublet", "Both",
   ifelse(da_diff$scdblfinder.predicted_doublet == "doublet", "scDblFinder Only",
-  ifelse(da_diff$DF.classifications_0.25_0.1_993 == "Doublet", "DoubletFinder Only", "Neither"))
+  ifelse(da_diff$DF.classifications_0.25_0.1_508 == "Doublet", "DoubletFinder Only", "Neither"))
 )
 
 
 # Scatter plot comparing doublet scores
-ggplot(da_diff@meta.data, aes(x = scdblfinder.doublet_scores, y = pANN_0.25_0.1_993)) +
+ggplot(da_diff@meta.data, aes(x = scdblfinder.doublet_scores, y = pANN_0.25_0.1_508)) +
   geom_point(aes(color = DoubletComparison), alpha = 0.7) +
   labs(title = "Doublet Score Comparison: scDblFinder vs DoubletFinder",
        x = "scDblFinder Score", y = "DoubletFinder Score") +
@@ -217,9 +221,10 @@ After identifying potential outliers and doublets, we can apply a final filterin
 ```{r}
 # Final filtering step to remove outliers and doublets
 # Filter out cells that were flagged as outliers or doublets
-da_diff.filter<- subset(da_diff, subset = !outlier & DoubletComparison != "Both")
+da_diff.filter<- subset(da_diff, subset = !outlier & DF.classifications_0.25_0.1_508 != "Doublet")
 
 # Summary of cells retained after filtering
+print(paste("Number of cells before final filtering:", ncol(da_diff)))
 print(paste("Number of cells retained after final filtering:", ncol(da_diff.filter)))
 ```
 
@@ -289,9 +294,14 @@ da_diff.filter <- FindClusters(da_diff.filter, resolution = 0.5)
 da_diff.filter <- RunUMAP(da_diff.filter, dims = 1:10)
 DimPlot(da_diff.filter, reduction = "umap", group.by = "seurat_clusters")+DimPlot(da_diff.filter, group.by = "orig.ident", reduction = "umap",cols = sampleColors)
 
+
+FeaturePlot(da_diff.filter, features = c("STMN2","COL1A1","LMX1A"),order=T)+DimPlot(da_diff.filter, group.by = "orig.ident", reduction = "umap",cols = sampleColors,shuffle = T)
+
+
 ```
 
 ### Integration Using Harmony
+
 When analyzing multiple datasets or batches, it’s crucial to account for batch effects that can obscure biological signals. The harmony algorithm provides an effective approach to integrating data from different sources while controlling for these batch effects.
 
 Harmony works by iteratively adjusting the embeddings of cells in a lower-dimensional space, aligning them based on shared biological variation while minimizing differences caused by batch effects. This is achieved through a low-rank approximation of the data, which allows for the simultaneous consideration of both biological and technical sources of variation.
@@ -306,45 +316,158 @@ After integrating the datasets with Harmony, we can proceed with clustering and 
 da_integrated <- RunHarmony(da_diff.filter, group.by.vars = "orig.ident")
 
 # Proceed with clustering and visualization on the Harmony-adjusted embeddings
-da_integrated <- FindNeighbors(da_integrated, dims = 1:30)
-da_integrated <- FindClusters(da_integrated, resolution = 0.5)
+da_integrated <- FindNeighbors(da_integrated, dims = 1:30, reduction = "harmony")
+da_integrated <- FindClusters(da_integrated, resolution = 0.1)
 da_integrated <- RunUMAP(da_integrated, reduction = "harmony", dims = 1:30)
 
 # Visualize the integrated data
 DimPlot(da_integrated, reduction = "umap", group.by = "seurat_clusters") +
 DimPlot(da_integrated, group.by = "orig.ident", reduction = "umap", cols = sampleColors)
-
 ```
+
 ------------------------------------------------------------------------
 
-# 6. Finding Markers and Annotating Clusters
+# 6. Annotating Clusters
 
-### Identifying Marker Genes
+Clustering cells assigns an identity label to each one, allowing us to infer that cells with the same label are similar and likely represent the same cell type or state. Determining the specific cell types or states corresponding to these clusters can be challenging, and there is often no definitive answer. However, several approaches can help clarify this issue:
+
+1.  **Examine the expression of canonical cell type and cell state markers** within the clusters. This method relies on established knowledge of well-characterized markers in the field.
+
+2.  **Identify signature or marker genes** for each cell cluster. Once these genes are determined, literature searches, enrichment analyses, or experimental validations can be conducted to further refine annotations.
+
+3.  **Compare the gene expression profiles of the clusters** with existing reference datasets. This can provide additional context for identifying the nature of the clusters.
+
+It is important to note that the first method requires prior knowledge of the system being studied, including a comprehensive list of accepted markers relevant to the context. For instance, in the context of differentiating dopamine neurons from stem cells, several suitable marker genes have been identified, including:
+
+-   MKI67, TOP2A, CENPF: Genes involved in the cell cycle, often used to mark proliferating cells.
+-   SOX2, HES1, NES: Key genes associated with neurogenesis, marking neural stem or progenitor cells.
+-   FABP7, SHH, CORIN, FOXA2, LMX1B, OTX2: Markers of floor plate progenitors, important for specifying ventral midbrain neurons.
+-   TH, EN1, PBX1, STMN2: Genes involved in dopamine (DA) neurogenesis; critical for identifying dopamine neuron lineage and development.
+-   AQP4, GFAP, EDNRB, GJA1: Markers of astrocytes, essential for identifying and studying astrocytic populations.
+-   COL1A1, COL1A2: Genes associated with vascular and leptomeningeal cells (VLMCs), playing a role in extracellular matrix formation and support.
+
+These genes serve as a starting point for assessing the identity of dopamine neurons in clusters derived from stem cell differentiation.
+
+#### 6.1 Canonical Markers
+
+```{r canonical-markers}
+
+# Canonical markers for dopamine neurons
+genes <- c(
+  "MKI67","TOP2A","CENPF", # Cell cycle
+  "SOX2", "HES1", "NES",         # Neurogenesis
+  "FABP7", "SHH", "CORIN", "FOXA2", "LMX1B", "OTX2", # Floor plate progenitors
+  "TH", "EN1", "PBX1", "STMN2",           # DA neurogenesis
+  "AQP4", "GFAP", "EDNRB", "GJA1",        # Astrocyte
+  "COL1A1", "COL1A2"   # VLMC
+)
+
+# Violin plot for canonical markers
+DotPlot(da_integrated, features = genes,dot.scale = 8)+
+  #Rotate x axis labels
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  # Update colors to something prettier
+viridis::scale_color_viridis(direction = -1)
+
+# Define gene modules as a list
+gene_modules <- list(
+  Cell_Cycle = c("MKI67", "TOP2A", "CENPF"),
+  Neurogenesis = c("SOX2", "HES1", "NES"),
+  Floor_Plate_Progenitors = c("FABP7", "SHH", "CORIN", "FOXA2", "LMX1B", "OTX2"),
+  DA_Neurogenesis = c("TH", "EN1", "PBX1", "STMN2"),
+  Astrocyte = c("AQP4", "GFAP", "EDNRB", "GJA1"),
+  VLMC = c("COL1A1", "COL1A2")
+)
+
+for(i in names(gene_modules)) {
+ 
+  da_integrated <- AddModuleScore(object = da_integrated, 
+                                  features = list(gene_modules[[i]]), 
+                                  name = i)
+  
+}
+
+
+plot_list <- list()
+
+
+# Plot each module score individually
+for (module in paste0(names(gene_modules),"1")) {
+  p <- FeaturePlot(
+    da_integrated,
+    features = module,
+    reduction = "umap", # or the dimensionality reduction method you are using
+    pt.size = 1,
+    order  = TRUE,
+    label = TRUE,
+    cols = c("lightgrey", "darkred"),
+    min.cutoff = "q9"
+  ) + NoLegend() + ggtitle(paste(module))
+  
+  plot_list[[module]] <- p
+}
+
+# Combine plots using patchwork
+wrap_plots(plot_list, ncol = 2)
+
+```
+
+#### 6.2 Identifying Marker Genes
 
 ```{r markers}
 # Find markers for each cluster
-da_diff.markers <- FindAllMarkers(da_diff, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+da_diff.markers <- FindAllMarkers(da_integrated, only.pos = TRUE,
+                                  min.pct = 0.25, logfc.threshold = 0.25)
 
-top3percondition <- da_diff.markers %>% group_by(cluster) %>% top_n(3, avg_log2FC) %>% arrange(cluster, avg_log2FC) 
+
+# downsample to 100 cells per cluster
+da_integrated.subsampled.metadata <- da_integrated@meta.data %>% rownames_to_column() %>% group_by(seurat_clusters) %>% sample_n(50) 
+
+
+# top 20 genes per cluster
+da_diff.markers.top <- da_diff.markers %>% group_by(cluster) %>% top_n(10, avg_log2FC) %>% arrange(cluster, avg_log2FC) %>% pull(gene)
+
+# Heatmap for canonical markers
+da_integrated <- ScaleData(da_integrated, features = da_diff.markers.top)
+DoHeatmap(da_integrated, features = da_diff.markers.top, group.by = "seurat_clusters",cells =da_integrated.subsampled.metadata$rowname)
 
 ```
 
-### Visualizing Marker Expression
+#### 6.3 Automated annotation using singleR
 
-```{r marker-visualization}
-# Violin plot for selected marker genes
-VlnPlot(da_diff, features = top3percondition[,"gene"] %>% pull(),pt.size = 0,ncol = 3)&scale_fill_manual(values=sampleColors)
+```{r singler}
+# Find markers for each cluster
+la_manno_ref <- LaMannoBrainData(which = "human-embryo")
+logcounts(la_manno_ref) <- log2(counts(la_manno_ref)+1)
 
-```
+# Run SingleR to classify cells
+singleR_results <- SingleR(
+  test = as.SingleCellExperiment(da_integrated),
+  ref = la_manno_ref,  
+  labels = la_manno_ref$Cell_type
+)
 
-------------------------------------------------------------------------
+# Add SingleR predictions as metadata to Seurat object
+da_integrated$SingleR_label <- singleR_results$labels
 
-# 7. Differential Expression Analysis
 
-```{r differential-expression}
-# Perform differential expression analysis between clusters
-cluster1_vs_cluster2 <- FindMarkers(da_diff, ident.1 = 1, ident.2 = 2, min.pct = 0.25)
-head(cluster1_vs_cluster2)
+# Visualize SingleR predictions
+DimPlot(da_integrated, group.by = "SingleR_label", reduction = "umap",label = T)
+
+# Calculate percentage of each cell type
+cell_type_counts <- table(da_integrated$SingleR_label)
+
+# Update metadata to include only cell types above threshold
+da_integrated$Filtered_SingleR_label <- ifelse(
+  da_integrated$SingleR_label %in% names(cell_type_counts[cell_type_counts > 200]),
+  da_integrated$SingleR_label,
+  NA  # or use "Other"
+)
+
+# UMAP plot with filtered cell types
+DimPlot(da_integrated, group.by = "Filtered_SingleR_label", label = TRUE, na.value = "grey") + 
+    ggtitle("Filtered Cell Type Classification ( > 200 cells)") 
+
 ```
 
 ------------------------------------------------------------------------
@@ -353,8 +476,187 @@ head(cluster1_vs_cluster2)
 
 ```{r custom-plot}
 # Customize UMAP with cluster annotations
-DimPlot(da_diff, reduction = "umap", label = TRUE) + ggtitle("UMAP with Cluster Labels")
+#DimPlot(da_diff.filter, reduction = "umap", label = TRUE) + ggtitle("UMAP with Cluster Labels")
 ```
+
+# 9. Extras 
+
+### Identifying number of clusters
+
+The resolution parameter in Seurat’s FindClusters function controls the granularity of clustering, with higher resolutions producing more fine-grained clusters. However, determining the optimal resolution can be challenging, especially when biological relevance is not immediately apparent.
+
+The clustree package provides a powerful visualization tool to assess how clusters evolve across different resolutions. By creating a tree-like structure, clustree highlights how clusters merge or split as resolution changes, aiding in the identification of biologically meaningful patterns. This section demonstrates how to generate clustering solutions at multiple resolutions and visualize them using clustree.
+
+```{r clustree}
+# Load required libraries
+#install.packages(c("clustree"))
+library(clustree)
+
+# Perform clustering for a range of resolutions
+resolutions <- seq(0.1, 1, by = 0.2)         # Define a range of resolutions
+da_diff <- FindNeighbors(da_diff, dims = 1:10) # Identify cell neighbors
+
+for (res in resolutions) {
+  da_diff <- FindClusters(
+    da_diff,
+    resolution = res,                          # Specify the current resolution
+    verbose = FALSE                            # Suppress output
+  )
+}
+
+# clustree visualization
+clustree(da_diff@meta.data, prefix = "RNA_snn_res.") +
+  theme_minimal() +
+  ggtitle("Clustering Resolution Tree") +
+  xlab("Resolution") +
+  ylab("Clusters")
+
+```
+
+In addition to clustree, other methods like silhouette analysis can help assess the quality and biological relevance of clustering results. Silhouette analysis provides a metric that quantifies how well a cell fits within its assigned cluster compared to neighboring clusters. A high silhouette width indicates well-separated clusters, while a low or negative silhouette width suggests overlapping or poorly defined clusters.
+
+Silhouette anaylis can be used both to asses the stability of a given clustering results but also to find the optimal number of clusters by optimizing the overall silhouette score.
+
+Here we will use silhouette analysis to look at the stability of the clustering results at a given resolution.
+  
+```{r silhouette}
+# Load required libraries
+library(cluster)
+
+# Choose a resolution for clustering
+da_diff <- FindClusters(da_diff, resolution = 0.1)
+
+# Extract the cluster assignments and the PCA coordinates
+clusters <- da_diff$seurat_clusters              # Cluster labels
+pca_coords <- Embeddings(da_diff, reduction = "pca")[, 1:10] # PCA coordinates (first 10 dimensions)
+
+# Compute the silhouette width
+sil <- silhouette(as.numeric(clusters), dist(pca_coords))
+
+# Convert silhouette object to a data frame for visualization
+sil_df <- as.data.frame(sil[, 1:3]) # Columns: cell ID, cluster, silhouette width
+colnames(sil_df) <- c("Cluster", "Neighboring_Cluster", "Silhouette_Width")
+sil_df$Cluster <- as.factor(sil_df$Cluster)
+
+# Plot silhouette widths for each cluster
+ggplot(sil_df, aes(x = Cluster, y = Silhouette_Width, fill = Cluster)) +
+  geom_boxplot() +
+  labs(
+    title = "Silhouette Analysis of Clusters",
+    x = "Cluster",
+    y = "Silhouette Width"
+  ) +
+  theme_minimal()
+```
+
+### Cell Cycle Analysis
+
+Cell cycle phase can be a significant source of variation in scRNA-seq data, influencing gene expression patterns and clustering results. To account for this, we can use the **CellCycleScoring** function in Seurat to assign a cell cycle phase to each cell based on the expression of cell cycle-related genes. This information can then be used to adjust for cell cycle effects in downstream analyses.
+
+For each cell, CellCycleScoring calculates the S.Score and G2M.Score by averaging the expression of predefined S-phase and G2/M-phase marker genes, respectively. These scores quantify the activity of phase-specific genes, providing a basis for classification. A cell is assigned to the S-phase if the S.Score exceeds the G2M.Score, to the G2/M-phase if the G2M.Score is higher, and to the G1-phase if both scores are low, indicating quiescence or non-dividing status. This classification captures cell cycle progression with a straightforward scoring comparison.
+
+```{r ccs}
+
+# Load predefined cell cycle gene sets from Seurat
+s.genes <- Seurat::cc.genes.updated.2019$s.genes  # Genes associated with S-phase
+g2m.genes <- Seurat::cc.genes.updated.2019$g2m.genes  # Genes associated with G2/M-phase
+
+# Perform cell cycle scoring
+da_diff <- CellCycleScoring(
+  da_diff,                           # Seurat object to classify
+  s.features = s.genes,              # Gene set for S-phase
+  g2m.features = g2m.genes,          # Gene set for G2/M-phase
+  set.ident = TRUE                   # Update cell identities based on the predicted phase
+)
+
+# View the resulting cell cycle scores
+head(da_diff@meta.data[, c("S.Score", "G2M.Score", "Phase")])
+
+# Visualize the distribution of cell cycle phases
+table(da_diff$Phase)                 # Count cells in each phase
+DimPlot(da_diff, group.by = "Phase") # Plot cells grouped by their predicted cell cycle phase
+```
+
+
+### Specicies classification
+
+In some scRNA-seq experiments, cells may be derived from multiple species, such as human-mouse xenografts.
+We will start by creating the seurat object.
+
+```{r create_multi_species_seu}
+dirs <- list.dirs("~/Dropbox/Parmar/jb001/filtered_bc_matrix/")[-1]
+
+# Rename each directory by removing the "data/FGF8plus_" 
+# prefix from the directory names.
+# This step makes sure that the "orig.ident" variable in your Seurat object will be informaticve.
+#names(dirs) <- gsub("/Users/petter/Dropbox/Parmar/jb001/filtered_bc_matrix//","",dirs)
+#names(dirs) <- gsub("_30May2024","",names(dirs))
+#names(dirs) <- gsub("_Graft29weekspost","",names(dirs))
+
+names(dirs) <- gsub("_","-",basename(dirs))
+
+# Read in the 10X Genomics data from each specified directory in 'dirs'.
+# The 'Read10X' function reads the gene expression count data for each sample into one large matrix
+da_diff.data <- Read10X(data.dir = dirs)
+rownames(da_diff.data)<-gsub("grch38_","",rownames(da_diff.data))
+
+
+# Create a Seurat object with the count data. This is an essential structure in Seurat for
+# storing and analyzing single-cell RNA-seq data.
+# - 'min.cells = 3' filters out genes not expressed in at least 3 cells.
+# - 'min.features = 200' filters out cells that have fewer than 200 detected genes.
+da_diff <- CreateSeuratObject(counts = da_diff.data, min.cells = 3, min.features = 200)
+```
+
+Next step is to use the 10X classification to assign the cells based on the species they belong to.
+
+```{r spec}
+# Load species classification CSV files from a specified directory
+gem_classification.files <- list.files(
+  "~/Dropbox/Parmar/jb001/filtered_bc_matrix/", # Directory containing the files
+  pattern = "*.csv",                           # Filter to include only CSV files
+  full.names = TRUE                            # Return full file paths
+)
+
+# Read and combine the data from all CSV files
+gem_classification <- gem_classification.files %>%
+  lapply(function(file) {                         # Apply the following function to each file:
+    df <- read.csv(file)                          # Read the current file into a data frame
+    df$filename <- gsub(                          # Add a new column 'filename'
+      "_", "-",                                   # Replace underscores with dashes
+      gsub(".gem_classification.csv", "",         # Remove the ".gem_classification.csv" suffix
+           basename(file))                        # Extract the base name of the file
+    )
+    return(df)                                    # Return the modified data frame
+  }) %>%
+  bind_rows()                                     # Combine all data frames into a single data frame
+
+# Set unique row names for the combined data frame using filename and barcode
+rownames(gem_classification) <- paste0(
+  gem_classification$filename,                   # Include the filename
+  "_",                                           # Separator
+  gem_classification$barcode                     # Include the barcode
+)
+
+# Add species classification metadata to the Seurat object
+da_diff <- AddMetaData(
+  da_diff,                                       # Existing Seurat object
+  gem_classification[, c("grch38", "rnor6", "call")] # Add specific columns: grch38, rnor6, call
+)
+
+# Simplify and standardize the 'orig.ident' metadata for the Seurat object
+da_diff$orig.ident <- gsub(
+  "-30May2024", "",                              # Remove the date suffix
+  gsub("-Graft29weekspost-TX", "",               # Remove the "Graft29weekspost-TX" suffix
+       da_diff$orig.ident)                       # Target the 'orig.ident' column
+)
+
+# Set cell identities to the modified 'orig.ident' values
+Idents(da_diff) <- da_diff$orig.ident
+
+
+````
+
 
 # Conclusion
 
