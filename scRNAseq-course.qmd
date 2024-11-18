@@ -12,15 +12,36 @@ format:
 
 # 1. Introduction to Single-Cell RNA Sequencing (scRNA-seq)
 
-A variety of toolkits and analytical frameworks have been developed to facilitate scRNA-seq data analysis. Among the most widely used are Seurat, created by Rahul Satija's lab for R, and scanpy, developed by Fabian Theis's lab for Python. Both provide robust functions and extensive parameter sets that cover many of the routine analyses commonly performed on scRNA-seq data. However, it's essential to recognize that these frameworks may not encompass all possible analyses, so exploring additional tools can broaden the scope of your data insights.
+A variety of toolkits and analytical frameworks have been developed to
+facilitate scRNA-seq data analysis. Among the most widely used are
+Seurat, created by Rahul Satija's lab for R, and scanpy, developed by
+Fabian Theis's lab for Python. Both provide robust functions and
+extensive parameter sets that cover many of the routine analyses
+commonly performed on scRNA-seq data. However, it's essential to
+recognize that these frameworks may not encompass all possible analyses,
+so exploring additional tools can broaden the scope of your data
+insights.
 
-In this tutorial, aimed at beginners, we will primarily focus on using Seurat to analyze scRNA-seq data in R. Throughout this tutorial, we’ll introduce some additional tools that offer complementary functionalities beyond Seurat’s capabilities.
+In this tutorial, aimed at beginners, we will primarily focus on using
+Seurat to analyze scRNA-seq data in R. Throughout this tutorial, we’ll
+introduce some additional tools that offer complementary functionalities
+beyond Seurat’s capabilities.
 
-This tutorial assumes that preprocessing steps—such as base calling, mapping, and read counting—have already been completed. For data generated with the 10x Genomics Chromium Single Cell Gene Expression Solution, the Cell Ranger pipeline from 10x Genomics is commonly used, resulting in a count matrix. If your data is from a different technology (e.g., well-based experiments like Smart-Seq2), the Cell Ranger pipeline may not be applicable, and an alternative method will be required to generate the count matrix.
+This tutorial assumes that preprocessing steps—such as base calling,
+mapping, and read counting—have already been completed. For data
+generated with the 10x Genomics Chromium Single Cell Gene Expression
+Solution, the Cell Ranger pipeline from 10x Genomics is commonly used,
+resulting in a count matrix. If your data is from a different technology
+(e.g., well-based experiments like Smart-Seq2), the Cell Ranger pipeline
+may not be applicable, and an alternative method will be required to
+generate the count matrix.
 
 ## scRNA-seq Workflow
 
-The typical workflow for scRNA-seq analysis includes: 1. Data loading and quality control 2. Normalization and scaling 3. Dimensionality reduction 4. Clustering and cell-type identification 5. Differential expression analysis
+The typical workflow for scRNA-seq analysis includes: 1. Data loading
+and quality control 2. Normalization and scaling 3. Dimensionality
+reduction 4. Clustering and cell-type identification 5. Differential
+expression analysis
 
 ------------------------------------------------------------------------
 
@@ -34,7 +55,10 @@ Before starting, ensure you have the following packages installed:
 # Install required packages
 
 install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", 
-                   "scater", "DoubletFinder", "harmony"))
+                   "scater", "remotes", "harmony"))
+
+# DoubletFinder is not available in Rs standard repositories, so we need to install it from GitHub
+remotes::install_github('chris-mcginnis-ucsf/DoubletFinder')
 
 ```
 
@@ -67,11 +91,14 @@ sampleColors <-  c("#2A363B", "#019875", "#99B898", "#FECEA8", "#FF847C", "#E84A
 
 # 3. Loading and Preprocessing Data
 
-In this section, we will load a sample dataset and perform quality control to filter out low-quality and doublet cells.
+In this section, we will load a sample dataset and perform quality
+control to filter out low-quality and doublet cells.
 
 ### Loading Data
 
-We will use the four midbrain organoid samples sequenced using 10X scRNA-seq at two timepoints. The data set comes from this [publication](https://pubmed.ncbi.nlm.nih.gov/33445654/).
+We will use the four midbrain organoid samples sequenced using 10X
+scRNA-seq at two timepoints. The data set comes from this
+[publication](https://pubmed.ncbi.nlm.nih.gov/33445654/).
 
 ```{r load-data}
 # List all directories within the "data/" directory, excluding the top-level "data/" itself.
@@ -93,17 +120,41 @@ da_diff <- CreateSeuratObject(counts = da_diff.data, min.cells = 3, min.features
 
 ### Quality Control
 
-A number of factors should be examined before downstream analyses, many of which we’ll address here:
+A number of factors should be examined before downstream analyses, many
+of which we’ll address here:
 
--   Low library size: When cells are very degraded or absent from the library preparation, the number of reads sequenced from that library will be very low. It’s important to remove these cells from downstream analyses.
+-   Low library size: When cells are very degraded or absent from the
+    library preparation, the number of reads sequenced from that library
+    will be very low. It’s important to remove these cells from
+    downstream analyses.
 
--   Low number of expressed genes: A low number of expressed genes (which is highly correlated with low library size) may be a result of poor-quality cells (e.g. dying, degraded, damaged, etc.), followed by high PCR amplification of the remaining RNA. Again, these cells should be removed from downstream analyses.
+-   Low number of expressed genes: A low number of expressed genes
+    (which is highly correlated with low library size) may be a result
+    of poor-quality cells (e.g. dying, degraded, damaged, etc.),
+    followed by high PCR amplification of the remaining RNA. Again,
+    these cells should be removed from downstream analyses.
 
--   High mitochondrial gene content: High concentrations of mitochondrial genes is often a result of damaged cells where the endogenous RNA escapes or degrades. As mitochondria has its own cell membranes, it is often the last DNA/RNA in damaged cells to degrade and hence occurs in high quantities during sequencing.
+-   High mitochondrial gene content: High concentrations of
+    mitochondrial genes is often a result of damaged cells where the
+    endogenous RNA escapes or degrades. As mitochondria has its own cell
+    membranes, it is often the last DNA/RNA in damaged cells to degrade
+    and hence occurs in high quantities during sequencing.
 
-    Fraction of reads originating from the mitochondria will be heavily dependent on if you're sequencing cells or nuclei. mtRNA should not be present in nuclei preparations and is usually \< 0.1%. For scRNA-seq 5-10% can be considered.
+    Fraction of reads originating from the mitochondria will be heavily
+    dependent on if you're sequencing cells or nuclei. mtRNA should not
+    be present in nuclei preparations and is usually \< 0.1%. For
+    scRNA-seq 5-10% can be considered.
 
--   Batch effect: Large scRNA-seq projects usually need to generate data across multiple batches due to logistical constraints. However, the processing of different batches is often subject to variation, e.g., changes in operator, differences in reagent quality and concentration, the sequencing machine used, etc. This results in systematic differences in the observed expression in cells from different batches, which we refer to as “batch effects”. Batch effects are problematic as they can be major drivers of variation in the data, masking the relevant biological differences and complicating interpretation of the results.
+-   Batch effect: Large scRNA-seq projects usually need to generate data
+    across multiple batches due to logistical constraints. However, the
+    processing of different batches is often subject to variation, e.g.,
+    changes in operator, differences in reagent quality and
+    concentration, the sequencing machine used, etc. This results in
+    systematic differences in the observed expression in cells from
+    different batches, which we refer to as “batch effects”. Batch
+    effects are problematic as they can be major drivers of variation in
+    the data, masking the relevant biological differences and
+    complicating interpretation of the results.
 
 #### Level 1 QC with Seurat
 
@@ -117,7 +168,6 @@ VlnPlot(da_diff, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
 ```
 
 #### Automated identification of cutoffs for filtering
-
 
 ```{r quality-control2}
 # Create a matrix of selected statistics from da_diff for analysis
@@ -148,15 +198,40 @@ da_diff@meta.data %>%
 
 ### Doublet Removal
 
-Doublets occur when two cells are captured together during single-cell RNA sequencing, leading to artificial readouts that can distort the analysis. Detecting and removing doublets is essential to ensure the integrity of downstream analyses, as they can introduce noise and misleading biological signals.
+Doublets occur when two cells are captured together during single-cell
+RNA sequencing, leading to artificial readouts that can distort the
+analysis. Detecting and removing doublets is essential to ensure the
+integrity of downstream analyses, as they can introduce noise and
+misleading biological signals.
 
-In tissues with distinct cell types, such as the brain, cells can be categorized into well-defined populations based on specific gene expression profiles. Each cell type has unique markers that facilitate the identification of doublets, as the combination of two different cell types will typically produce a distinct expression profile that can be detected by computational methods. For example, if a doublet is formed between a neuron and a glial cell, the resulting expression profile may reveal markers from both cell types, allowing for effective identification.
+In tissues with distinct cell types, such as the brain, cells can be
+categorized into well-defined populations based on specific gene
+expression profiles. Each cell type has unique markers that facilitate
+the identification of doublets, as the combination of two different cell
+types will typically produce a distinct expression profile that can be
+detected by computational methods. For example, if a doublet is formed
+between a neuron and a glial cell, the resulting expression profile may
+reveal markers from both cell types, allowing for effective
+identification.
 
-In contrast, datasets with continuous maturation feature cells that may share similar gene expression profiles but exist at different developmental stages or functional states. For instance, in a dataset capturing the maturation of immune cells, the transitional states between precursor cells and fully mature cells can be subtle, making it difficult to distinguish between single cells and doublets based on gene expression alone. The absence of distinct markers complicates the identification process, as the expected combined expression patterns of doublets may closely resemble those of mature cells.
+In contrast, datasets with continuous maturation feature cells that may
+share similar gene expression profiles but exist at different
+developmental stages or functional states. For instance, in a dataset
+capturing the maturation of immune cells, the transitional states
+between precursor cells and fully mature cells can be subtle, making it
+difficult to distinguish between single cells and doublets based on gene
+expression alone. The absence of distinct markers complicates the
+identification process, as the expected combined expression patterns of
+doublets may closely resemble those of mature cells.
 
 #### Identifying and Removing Doublets
 
-One common approach to identify doublets is using the **DoubletFinder** package in R. Below is a script demonstrating how to use this method on your Seurat object to identify and filter out doublets from your dataset. For this analysis with need to normalize and scale the data and also perform dimensionality reduction. We will cover these in more detail later.
+One common approach to identify doublets is using the **DoubletFinder**
+package in R. Below is a script demonstrating how to use this method on
+your Seurat object to identify and filter out doublets from your
+dataset. For this analysis with need to normalize and scale the data and
+also perform dimensionality reduction. We will cover these in more
+detail later.
 
 ```{r}
 # Normalize data
@@ -216,7 +291,11 @@ ggplot(da_diff@meta.data, aes(x = scdblfinder.doublet_scores, y = pANN_0.25_0.1_
 
 ### Final Outlier Filtering
 
-After identifying potential outliers and doublets, we can apply a final filtering step to exclude cells that are flagged as low quality or ambiguous. This final filter removes cells based on the previously calculated outlier status and doublet classification, ensuring that only high-quality, single-cell data remains for downstream analyses.
+After identifying potential outliers and doublets, we can apply a final
+filtering step to exclude cells that are flagged as low quality or
+ambiguous. This final filter removes cells based on the previously
+calculated outlier status and doublet classification, ensuring that only
+high-quality, single-cell data remains for downstream analyses.
 
 ```{r}
 # Final filtering step to remove outliers and doublets
@@ -232,11 +311,35 @@ print(paste("Number of cells retained after final filtering:", ncol(da_diff.filt
 
 # 4. Normalization and Scaling
 
-Normalization, finding variable features, and scaling are essential preprocessing steps to prepare the data for downstream analysis. Normalization corrects for differences in sequencing depth between cells, typically by transforming the raw counts into counts per cell or counts per million (CPM), followed by log transformation. This step ensures that expression levels are comparable across cells.
+Normalization, finding variable features, and scaling are essential
+preprocessing steps to prepare the data for downstream analysis.
+Normalization corrects for differences in sequencing depth between
+cells, typically by transforming the raw counts into counts per cell or
+counts per million (CPM), followed by log transformation. This step
+ensures that expression levels are comparable across cells.
 
-Finding variable features identifies genes with significant expression variability across cells, which is important because these genes often capture biologically meaningful patterns, while others contribute more noise. Variable features are selected based on metrics like variance or mean-variance relationships, providing a focused subset of genes for analysis. Scaling centers and scales the expression data, often by subtracting the mean and dividing by the standard deviation of each gene across cells. This step standardizes the gene expression values, making it easier to compare cell-to-cell variation and enhancing the performance of algorithms used in downstream analyses like dimensionality reduction and clustering. Together, these steps improve the accuracy and interpretability of scRNA-seq data.
+Finding variable features identifies genes with significant expression
+variability across cells, which is important because these genes often
+capture biologically meaningful patterns, while others contribute more
+noise. Variable features are selected based on metrics like variance or
+mean-variance relationships, providing a focused subset of genes for
+analysis. Scaling centers and scales the expression data, often by
+subtracting the mean and dividing by the standard deviation of each gene
+across cells. This step standardizes the gene expression values, making
+it easier to compare cell-to-cell variation and enhancing the
+performance of algorithms used in downstream analyses like
+dimensionality reduction and clustering. Together, these steps improve
+the accuracy and interpretability of scRNA-seq data.
 
-The **ScaleData** function is used to scale and center expression data. This process standardizes the data by shifting the distribution of each gene’s expression across cells to have a mean of zero and a standard deviation of one. ScaleData adjusts for cell-to-cell variability by centering and scaling each gene individually. Using ScaleData is particularly useful for analyses like PCA, which are sensitive to differences in gene variance. It also has the flexibility to regress out certain sources of variation, such as mitochondrial gene content, cell cycle phase, or other unwanted sources of noise.
+The **ScaleData** function is used to scale and center expression data.
+This process standardizes the data by shifting the distribution of each
+gene’s expression across cells to have a mean of zero and a standard
+deviation of one. ScaleData adjusts for cell-to-cell variability by
+centering and scaling each gene individually. Using ScaleData is
+particularly useful for analyses like PCA, which are sensitive to
+differences in gene variance. It also has the flexibility to regress out
+certain sources of variation, such as mitochondrial gene content, cell
+cycle phase, or other unwanted sources of noise.
 
 ```{r normalization}
 # Normalize data
@@ -259,11 +362,28 @@ da_diff.filter <- ScaleData(da_diff.filter)
 
 ### Principal Component Analysis (PCA)
 
-After quality control, filtering and normalization, the next step in single-cell RNA sequencing analysis is usually to explore the structure of the data by grouping similar cells and visualizing these groupings in a reduced-dimensional space. This is achieved through **dimensionality reduction** and **clustering**.
+After quality control, filtering and normalization, the next step in
+single-cell RNA sequencing analysis is usually to explore the structure
+of the data by grouping similar cells and visualizing these groupings in
+a reduced-dimensional space. This is achieved through **dimensionality
+reduction** and **clustering**.
 
-Dimensionality reduction techniques help to condense complex, high-dimensional scRNA-seq data into fewer dimensions, making it easier to identify patterns and relationships among cells. Clustering algorithms then group cells with similar gene expression profiles, revealing potential cell types or states present in the dataset.
+Dimensionality reduction techniques help to condense complex,
+high-dimensional scRNA-seq data into fewer dimensions, making it easier
+to identify patterns and relationships among cells. Clustering
+algorithms then group cells with similar gene expression profiles,
+revealing potential cell types or states present in the dataset.
 
-**Principal Component Analysis (PCA)** is one of the most commonly used dimensionality reduction methods in scRNA-seq analysis. PCA transforms the data by identifying principal components, which capture the axes of maximum variance in the data, thereby highlighting major sources of variation. Here, we run PCA on the filtered dataset using the most variable genes to capture the essential features of the data, selecting 50 principal components (PCs) to examine. The ElbowPlot function helps determine the number of PCs to retain by visualizing the point where adding more components provides diminishing returns in variance explained.
+**Principal Component Analysis (PCA)** is one of the most commonly used
+dimensionality reduction methods in scRNA-seq analysis. PCA transforms
+the data by identifying principal components, which capture the axes of
+maximum variance in the data, thereby highlighting major sources of
+variation. Here, we run PCA on the filtered dataset using the most
+variable genes to capture the essential features of the data, selecting
+50 principal components (PCs) to examine. The ElbowPlot function helps
+determine the number of PCs to retain by visualizing the point where
+adding more components provides diminishing returns in variance
+explained.
 
 ```{r pca}
 # Run PCA
@@ -279,11 +399,30 @@ ElbowPlot(da_diff.filter, ndims = 50)
 
 ### Clustering and Visualization
 
-Once we have a reduced representation of the data from PCA, we proceed with clustering to group cells based on their similarity. In this workflow, we use the `FindNeighbors` function to calculate the local neighborhood structure of cells based on their PCA coordinates, followed by `FindClusters` to assign each cell to a cluster. The resolution parameter is set to 0.5 to control the granularity of clusters, with higher values yielding more clusters.
+Once we have a reduced representation of the data from PCA, we proceed
+with clustering to group cells based on their similarity. In this
+workflow, we use the `FindNeighbors` function to calculate the local
+neighborhood structure of cells based on their PCA coordinates, followed
+by `FindClusters` to assign each cell to a cluster. The resolution
+parameter is set to 0.5 to control the granularity of clusters, with
+higher values yielding more clusters.
 
-In constructing the local neighborhood structure, `FindNeighbors` employs a **Shared Nearest Neighbor (SNN)** approach to refine the clustering accuracy. The SNN method goes beyond simple k-nearest neighbors by assessing the overlap of each cell’s neighborhood with those of other cells. Cells are considered more similar if they share multiple nearest neighbors, resulting in a **weighted graph** that highlights stronger connections between cells with high shared neighbor counts. This added layer of similarity enhances clustering stability by prioritizing dense regions of cells that share local neighborhoods, thereby emphasizing biologically relevant groupings in complex data.
+In constructing the local neighborhood structure, `FindNeighbors`
+employs a **Shared Nearest Neighbor (SNN)** approach to refine the
+clustering accuracy. The SNN method goes beyond simple k-nearest
+neighbors by assessing the overlap of each cell’s neighborhood with
+those of other cells. Cells are considered more similar if they share
+multiple nearest neighbors, resulting in a **weighted graph** that
+highlights stronger connections between cells with high shared neighbor
+counts. This added layer of similarity enhances clustering stability by
+prioritizing dense regions of cells that share local neighborhoods,
+thereby emphasizing biologically relevant groupings in complex data.
 
-To visualize these clusters, we apply Uniform Manifold Approximation and Projection (UMAP), which provides a 2D projection of the data, preserving local and some global structure in the clustering. The UMAP plot provides an intuitive visual of how cells are grouped, making it easier to explore potential cell types or states within the dataset.
+To visualize these clusters, we apply Uniform Manifold Approximation and
+Projection (UMAP), which provides a 2D projection of the data,
+preserving local and some global structure in the clustering. The UMAP
+plot provides an intuitive visual of how cells are grouped, making it
+easier to explore potential cell types or states within the dataset.
 
 ```{r clustering}
 # Find clusters
@@ -302,13 +441,31 @@ FeaturePlot(da_diff.filter, features = c("STMN2","COL1A1","LMX1A"),order=T)+DimP
 
 ### Integration Using Harmony
 
-When analyzing multiple datasets or batches, it’s crucial to account for batch effects that can obscure biological signals. The harmony algorithm provides an effective approach to integrating data from different sources while controlling for these batch effects.
+When analyzing multiple datasets or batches, it’s crucial to account for
+batch effects that can obscure biological signals. The harmony algorithm
+provides an effective approach to integrating data from different
+sources while controlling for these batch effects.
 
-Harmony works by iteratively adjusting the embeddings of cells in a lower-dimensional space, aligning them based on shared biological variation while minimizing differences caused by batch effects. This is achieved through a low-rank approximation of the data, which allows for the simultaneous consideration of both biological and technical sources of variation.
+Harmony works by iteratively adjusting the embeddings of cells in a
+lower-dimensional space, aligning them based on shared biological
+variation while minimizing differences caused by batch effects. This is
+achieved through a low-rank approximation of the data, which allows for
+the simultaneous consideration of both biological and technical sources
+of variation.
 
-To integrate datasets using Harmony, we start by running PCA on each dataset separately. Once we have the PCA embeddings, we can pass them to the RunHarmony function, specifying the variable that represents the batch or dataset. Harmony then re-embeds the cells, producing a new PCA representation that mitigates batch effects while retaining the biological structure.
+To integrate datasets using Harmony, we start by running PCA on each
+dataset separately. Once we have the PCA embeddings, we can pass them to
+the RunHarmony function, specifying the variable that represents the
+batch or dataset. Harmony then re-embeds the cells, producing a new PCA
+representation that mitigates batch effects while retaining the
+biological structure.
 
-After integrating the datasets with Harmony, we can proceed with clustering and visualization using the adjusted embeddings. This integration enhances the robustness of downstream analyses, allowing for more accurate identification of cell types or states across datasets, and ensuring that biological signals are not overshadowed by batch variability.
+After integrating the datasets with Harmony, we can proceed with
+clustering and visualization using the adjusted embeddings. This
+integration enhances the robustness of downstream analyses, allowing for
+more accurate identification of cell types or states across datasets,
+and ensuring that biological signals are not overshadowed by batch
+variability.
 
 ```{r harmony-integration}
 
@@ -329,24 +486,48 @@ DimPlot(da_integrated, group.by = "orig.ident", reduction = "umap", cols = sampl
 
 # 6. Annotating Clusters
 
-Clustering cells assigns an identity label to each one, allowing us to infer that cells with the same label are similar and likely represent the same cell type or state. Determining the specific cell types or states corresponding to these clusters can be challenging, and there is often no definitive answer. However, several approaches can help clarify this issue:
+Clustering cells assigns an identity label to each one, allowing us to
+infer that cells with the same label are similar and likely represent
+the same cell type or state. Determining the specific cell types or
+states corresponding to these clusters can be challenging, and there is
+often no definitive answer. However, several approaches can help clarify
+this issue:
 
-1.  **Examine the expression of canonical cell type and cell state markers** within the clusters. This method relies on established knowledge of well-characterized markers in the field.
+1.  **Examine the expression of canonical cell type and cell state
+    markers** within the clusters. This method relies on established
+    knowledge of well-characterized markers in the field.
 
-2.  **Identify signature or marker genes** for each cell cluster. Once these genes are determined, literature searches, enrichment analyses, or experimental validations can be conducted to further refine annotations.
+2.  **Identify signature or marker genes** for each cell cluster. Once
+    these genes are determined, literature searches, enrichment
+    analyses, or experimental validations can be conducted to further
+    refine annotations.
 
-3.  **Compare the gene expression profiles of the clusters** with existing reference datasets. This can provide additional context for identifying the nature of the clusters.
+3.  **Compare the gene expression profiles of the clusters** with
+    existing reference datasets. This can provide additional context for
+    identifying the nature of the clusters.
 
-It is important to note that the first method requires prior knowledge of the system being studied, including a comprehensive list of accepted markers relevant to the context. For instance, in the context of differentiating dopamine neurons from stem cells, several suitable marker genes have been identified, including:
+It is important to note that the first method requires prior knowledge
+of the system being studied, including a comprehensive list of accepted
+markers relevant to the context. For instance, in the context of
+differentiating dopamine neurons from stem cells, several suitable
+marker genes have been identified, including:
 
--   MKI67, TOP2A, CENPF: Genes involved in the cell cycle, often used to mark proliferating cells.
--   SOX2, HES1, NES: Key genes associated with neurogenesis, marking neural stem or progenitor cells.
--   FABP7, SHH, CORIN, FOXA2, LMX1B, OTX2: Markers of floor plate progenitors, important for specifying ventral midbrain neurons.
--   TH, EN1, PBX1, STMN2: Genes involved in dopamine (DA) neurogenesis; critical for identifying dopamine neuron lineage and development.
--   AQP4, GFAP, EDNRB, GJA1: Markers of astrocytes, essential for identifying and studying astrocytic populations.
--   COL1A1, COL1A2: Genes associated with vascular and leptomeningeal cells (VLMCs), playing a role in extracellular matrix formation and support.
+-   MKI67, TOP2A, CENPF: Genes involved in the cell cycle, often used to
+    mark proliferating cells.
+-   SOX2, HES1, NES: Key genes associated with neurogenesis, marking
+    neural stem or progenitor cells.
+-   FABP7, SHH, CORIN, FOXA2, LMX1B, OTX2: Markers of floor plate
+    progenitors, important for specifying ventral midbrain neurons.
+-   TH, EN1, PBX1, STMN2: Genes involved in dopamine (DA) neurogenesis;
+    critical for identifying dopamine neuron lineage and development.
+-   AQP4, GFAP, EDNRB, GJA1: Markers of astrocytes, essential for
+    identifying and studying astrocytic populations.
+-   COL1A1, COL1A2: Genes associated with vascular and leptomeningeal
+    cells (VLMCs), playing a role in extracellular matrix formation and
+    support.
 
-These genes serve as a starting point for assessing the identity of dopamine neurons in clusters derived from stem cell differentiation.
+These genes serve as a starting point for assessing the identity of
+dopamine neurons in clusters derived from stem cell differentiation.
 
 #### 6.1 Canonical Markers
 
@@ -479,13 +660,23 @@ DimPlot(da_integrated, group.by = "Filtered_SingleR_label", label = TRUE, na.val
 #DimPlot(da_diff.filter, reduction = "umap", label = TRUE) + ggtitle("UMAP with Cluster Labels")
 ```
 
-# 9. Extras 
+# 9. Extras
 
 ### Identifying number of clusters
 
-The resolution parameter in Seurat’s FindClusters function controls the granularity of clustering, with higher resolutions producing more fine-grained clusters. However, determining the optimal resolution can be challenging, especially when biological relevance is not immediately apparent.
+The resolution parameter in Seurat’s FindClusters function controls the
+granularity of clustering, with higher resolutions producing more
+fine-grained clusters. However, determining the optimal resolution can
+be challenging, especially when biological relevance is not immediately
+apparent.
 
-The clustree package provides a powerful visualization tool to assess how clusters evolve across different resolutions. By creating a tree-like structure, clustree highlights how clusters merge or split as resolution changes, aiding in the identification of biologically meaningful patterns. This section demonstrates how to generate clustering solutions at multiple resolutions and visualize them using clustree.
+The clustree package provides a powerful visualization tool to assess
+how clusters evolve across different resolutions. By creating a
+tree-like structure, clustree highlights how clusters merge or split as
+resolution changes, aiding in the identification of biologically
+meaningful patterns. This section demonstrates how to generate
+clustering solutions at multiple resolutions and visualize them using
+clustree.
 
 ```{r clustree}
 # Load required libraries
@@ -513,12 +704,21 @@ clustree(da_diff@meta.data, prefix = "RNA_snn_res.") +
 
 ```
 
-In addition to clustree, other methods like silhouette analysis can help assess the quality and biological relevance of clustering results. Silhouette analysis provides a metric that quantifies how well a cell fits within its assigned cluster compared to neighboring clusters. A high silhouette width indicates well-separated clusters, while a low or negative silhouette width suggests overlapping or poorly defined clusters.
+In addition to clustree, other methods like silhouette analysis can help
+assess the quality and biological relevance of clustering results.
+Silhouette analysis provides a metric that quantifies how well a cell
+fits within its assigned cluster compared to neighboring clusters. A
+high silhouette width indicates well-separated clusters, while a low or
+negative silhouette width suggests overlapping or poorly defined
+clusters.
 
-Silhouette anaylis can be used both to asses the stability of a given clustering results but also to find the optimal number of clusters by optimizing the overall silhouette score.
+Silhouette anaylis can be used both to asses the stability of a given
+clustering results but also to find the optimal number of clusters by
+optimizing the overall silhouette score.
 
-Here we will use silhouette analysis to look at the stability of the clustering results at a given resolution.
-  
+Here we will use silhouette analysis to look at the stability of the
+clustering results at a given resolution.
+
 ```{r silhouette}
 # Load required libraries
 library(cluster)
@@ -551,9 +751,22 @@ ggplot(sil_df, aes(x = Cluster, y = Silhouette_Width, fill = Cluster)) +
 
 ### Cell Cycle Analysis
 
-Cell cycle phase can be a significant source of variation in scRNA-seq data, influencing gene expression patterns and clustering results. To account for this, we can use the **CellCycleScoring** function in Seurat to assign a cell cycle phase to each cell based on the expression of cell cycle-related genes. This information can then be used to adjust for cell cycle effects in downstream analyses.
+Cell cycle phase can be a significant source of variation in scRNA-seq
+data, influencing gene expression patterns and clustering results. To
+account for this, we can use the **CellCycleScoring** function in Seurat
+to assign a cell cycle phase to each cell based on the expression of
+cell cycle-related genes. This information can then be used to adjust
+for cell cycle effects in downstream analyses.
 
-For each cell, CellCycleScoring calculates the S.Score and G2M.Score by averaging the expression of predefined S-phase and G2/M-phase marker genes, respectively. These scores quantify the activity of phase-specific genes, providing a basis for classification. A cell is assigned to the S-phase if the S.Score exceeds the G2M.Score, to the G2/M-phase if the G2M.Score is higher, and to the G1-phase if both scores are low, indicating quiescence or non-dividing status. This classification captures cell cycle progression with a straightforward scoring comparison.
+For each cell, CellCycleScoring calculates the S.Score and G2M.Score by
+averaging the expression of predefined S-phase and G2/M-phase marker
+genes, respectively. These scores quantify the activity of
+phase-specific genes, providing a basis for classification. A cell is
+assigned to the S-phase if the S.Score exceeds the G2M.Score, to the
+G2/M-phase if the G2M.Score is higher, and to the G1-phase if both
+scores are low, indicating quiescence or non-dividing status. This
+classification captures cell cycle progression with a straightforward
+scoring comparison.
 
 ```{r ccs}
 
@@ -577,11 +790,11 @@ table(da_diff$Phase)                 # Count cells in each phase
 DimPlot(da_diff, group.by = "Phase") # Plot cells grouped by their predicted cell cycle phase
 ```
 
-
 ### Specicies classification
 
-In some scRNA-seq experiments, cells may be derived from multiple species, such as human-mouse xenografts.
-We will start by creating the seurat object.
+In some scRNA-seq experiments, cells may be derived from multiple
+species, such as human-mouse xenografts. We will start by creating the
+seurat object.
 
 ```{r create_multi_species_seu}
 dirs <- list.dirs("~/Dropbox/Parmar/jb001/filtered_bc_matrix/")[-1]
@@ -608,56 +821,56 @@ rownames(da_diff.data)<-gsub("grch38_","",rownames(da_diff.data))
 da_diff <- CreateSeuratObject(counts = da_diff.data, min.cells = 3, min.features = 200)
 ```
 
-Next step is to use the 10X classification to assign the cells based on the species they belong to.
+Next step is to use the 10X classification to assign the cells based on
+the species they belong to.
 
-```{r spec}
-# Load species classification CSV files from a specified directory
-gem_classification.files <- list.files(
-  "~/Dropbox/Parmar/jb001/filtered_bc_matrix/", # Directory containing the files
-  pattern = "*.csv",                           # Filter to include only CSV files
-  full.names = TRUE                            # Return full file paths
-)
+\`\`\`{r spec} \# Load species classification CSV files from a specified
+directory gem_classification.files \<- list.files(
+"\~/Dropbox/Parmar/jb001/filtered_bc_matrix/", \# Directory containing
+the files pattern = "\*.csv", \# Filter to include only CSV files
+full.names = TRUE \# Return full file paths )
 
 # Read and combine the data from all CSV files
-gem_classification <- gem_classification.files %>%
-  lapply(function(file) {                         # Apply the following function to each file:
-    df <- read.csv(file)                          # Read the current file into a data frame
-    df$filename <- gsub(                          # Add a new column 'filename'
-      "_", "-",                                   # Replace underscores with dashes
-      gsub(".gem_classification.csv", "",         # Remove the ".gem_classification.csv" suffix
-           basename(file))                        # Extract the base name of the file
-    )
-    return(df)                                    # Return the modified data frame
-  }) %>%
-  bind_rows()                                     # Combine all data frames into a single data frame
+
+gem_classification \<- gem_classification.files %\>%
+lapply(function(file) { \# Apply the following function to each file: df
+\<- read.csv(file) \# Read the current file into a data frame
+df\$filename \<- gsub( \# Add a new column 'filename' "\_", "-", \#
+Replace underscores with dashes gsub(".gem_classification.csv", "", \#
+Remove the ".gem_classification.csv" suffix basename(file)) \# Extract
+the base name of the file ) return(df) \# Return the modified data frame
+}) %\>% bind_rows() \# Combine all data frames into a single data frame
 
 # Set unique row names for the combined data frame using filename and barcode
-rownames(gem_classification) <- paste0(
-  gem_classification$filename,                   # Include the filename
+
+rownames(gem_classification) \<- paste0(
+gem_classification$filename,                   # Include the filename
   "_",                                           # Separator
-  gem_classification$barcode                     # Include the barcode
-)
+  gem_classification$barcode \# Include the barcode )
 
 # Add species classification metadata to the Seurat object
-da_diff <- AddMetaData(
-  da_diff,                                       # Existing Seurat object
-  gem_classification[, c("grch38", "rnor6", "call")] # Add specific columns: grch38, rnor6, call
-)
+
+da_diff \<- AddMetaData( da_diff, \# Existing Seurat object
+gem_classification\[, c("grch38", "rnor6", "call")\] \# Add specific
+columns: grch38, rnor6, call )
 
 # Simplify and standardize the 'orig.ident' metadata for the Seurat object
+
 da_diff$orig.ident <- gsub(
   "-30May2024", "",                              # Remove the date suffix
   gsub("-Graft29weekspost-TX", "",               # Remove the "Graft29weekspost-TX" suffix
-       da_diff$orig.ident)                       # Target the 'orig.ident' column
-)
+       da_diff$orig.ident) \# Target the 'orig.ident' column )
 
 # Set cell identities to the modified 'orig.ident' values
-Idents(da_diff) <- da_diff$orig.ident
 
+Idents(da_diff) \<- da_diff\$orig.ident
 
-````
-
+\`\`\`\`
 
 # Conclusion
 
-In this tutorial, we've covered the fundamentals of scRNA-seq data analysis using Seurat, from loading and preprocessing data to clustering and marker identification. For further learning, explore the [Seurat documentation](https://satijalab.org/seurat/) and try using your own dataset.
+In this tutorial, we've covered the fundamentals of scRNA-seq data
+analysis using Seurat, from loading and preprocessing data to clustering
+and marker identification. For further learning, explore the [Seurat
+documentation](https://satijalab.org/seurat/) and try using your own
+dataset.
