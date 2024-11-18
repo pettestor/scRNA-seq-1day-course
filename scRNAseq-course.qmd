@@ -807,7 +807,7 @@ FeatureScatter(graft, feature1 = "RatCounts", feature2 = "HumanCounts", group.by
 # Create a subset of the Seurat object containing only cells classified as "Human"
 graft.human <- subset(graft, subset = Species == "Human")
 
-# And you can start with QC and so on...
+# And you can start with QC and so on... 
 
 
 ```
