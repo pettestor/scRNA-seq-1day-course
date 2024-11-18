@@ -54,7 +54,7 @@ Before starting, ensure you have the following packages installed:
 ```{r setup, eval=FALSE}
 # Install required packages
 
-install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", 
+install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", "tibble","viridis","SingleR","scRNAseq","patchwork",
                    "scater", "remotes", "harmony"))
 
 # DoubletFinder is not available in Rs standard repositories, so we need to install it from GitHub
@@ -102,7 +102,7 @@ scRNA-seq at two timepoints. The data set comes from this
 
 ```{r load-data}
 # List all directories within the "data/" directory, excluding the top-level "data/" itself.
-dirs <- list.dirs("../scRNAseq-course/data/organoids/")[-1]
+dirs <- list.dirs("data/organoids/")[-1]
 
 # This step makes sure that the "orig.ident" variable in your Seurat object will be informaticve.
 names(dirs) <- c("day60-1","day60-2", "day30-1","day30-2")
@@ -241,7 +241,7 @@ da_diff <- ScaleData(da_diff)
 da_diff <- RunPCA(da_diff, verbose=FALSE)
 
 # Perform doublet detection
-da_diff <- doubletFinder_v3(da_diff, 
+da_diff <- doubletFinder(da_diff, 
                                    PCs = 1:20,
                                    pK = 0.1, 
                                    nExp = round(0.05 * ncol(da_diff)), 
@@ -249,43 +249,6 @@ da_diff <- doubletFinder_v3(da_diff,
 
 
 da_diff@meta.data %>% ggplot(aes(x=nFeature_RNA, y=nCount_RNA, color=`DF.classifications_0.25_0.1_508`)) + geom_point() + scale_color_manual(values=c("black", "red"))+facet_wrap(~orig.ident+DF.classifications_0.25_0.1_508)
-
-```
-
-#### Removing Doublets using scDblFinder
-
-```{r}
-
-library(SingleCellExperiment)
-library(scDblFinder)
-
-# Convert Seurat object to SingleCellExperiment
-da_diff.sce <- as.SingleCellExperiment(da_diff)
-
-# Run scDblFinder to identify doublets
-da_diff.sce <- scDblFinder(da_diff.sce)
-
-# Add doublet information to the Seurat object metadata
-da_diff$scdblfinder.doublet_scores <- colData(da_diff.sce)$scDblFinder.score
-da_diff$scdblfinder.predicted_doublet <- colData(da_diff.sce)$scDblFinder.class
-
-# Visualize doublet scores
-
-# Create a combined column to show overlap in predictions
-da_diff$DoubletComparison <- ifelse(
-  da_diff$DF.classifications_0.25_0.1_508 == "Doublet" & da_diff$scdblfinder.predicted_doublet == "doublet", "Both",
-  ifelse(da_diff$scdblfinder.predicted_doublet == "doublet", "scDblFinder Only",
-  ifelse(da_diff$DF.classifications_0.25_0.1_508 == "Doublet", "DoubletFinder Only", "Neither"))
-)
-
-
-# Scatter plot comparing doublet scores
-ggplot(da_diff@meta.data, aes(x = scdblfinder.doublet_scores, y = pANN_0.25_0.1_508)) +
-  geom_point(aes(color = DoubletComparison), alpha = 0.7) +
-  labs(title = "Doublet Score Comparison: scDblFinder vs DoubletFinder",
-       x = "scDblFinder Score", y = "DoubletFinder Score") +
-  scale_color_manual(values = c("Both" = "purple", "scDblFinder Only" = "blue", "DoubletFinder Only" = "red", "Neither" = "grey")) +
-  theme_minimal()
 
 ```
 
@@ -797,80 +760,56 @@ species, such as human-mouse xenografts. We will start by creating the
 seurat object.
 
 ```{r create_multi_species_seu}
-dirs <- list.dirs("~/Dropbox/Parmar/jb001/filtered_bc_matrix/")[-1]
-
-# Rename each directory by removing the "data/FGF8plus_" 
-# prefix from the directory names.
-# This step makes sure that the "orig.ident" variable in your Seurat object will be informaticve.
-#names(dirs) <- gsub("/Users/petter/Dropbox/Parmar/jb001/filtered_bc_matrix//","",dirs)
-#names(dirs) <- gsub("_30May2024","",names(dirs))
-#names(dirs) <- gsub("_Graft29weekspost","",names(dirs))
-
-names(dirs) <- gsub("_","-",basename(dirs))
-
-# Read in the 10X Genomics data from each specified directory in 'dirs'.
-# The 'Read10X' function reads the gene expression count data for each sample into one large matrix
-da_diff.data <- Read10X(data.dir = dirs)
-rownames(da_diff.data)<-gsub("grch38_","",rownames(da_diff.data))
-
-
-# Create a Seurat object with the count data. This is an essential structure in Seurat for
-# storing and analyzing single-cell RNA-seq data.
-# - 'min.cells = 3' filters out genes not expressed in at least 3 cells.
-# - 'min.features = 200' filters out cells that have fewer than 200 detected genes.
-da_diff <- CreateSeuratObject(counts = da_diff.data, min.cells = 3, min.features = 200)
+# Read the 10X Genomics data
+graft.data <- Read10X(data.dir = "data/grafts/G1_YZ013_SD_no12/") 
+# Remove the "grch38_" prefix from gene names for easier readability
+rownames(graft.data)<-gsub("premRNAGRCH38-","",rownames(graft.data)) 
+# Create a Seurat object with the count data
+graft <- CreateSeuratObject(counts = graft.data, min.cells = 3, min.features = 200)
 ```
 
 Next step is to use the 10X classification to assign the cells based on
 the species they belong to.
 
-\`\`\`{r spec} \# Load species classification CSV files from a specified
-directory gem_classification.files \<- list.files(
-"\~/Dropbox/Parmar/jb001/filtered_bc_matrix/", \# Directory containing
-the files pattern = "\*.csv", \# Filter to include only CSV files
-full.names = TRUE \# Return full file paths )
+```{r create_multi_species_seu2}
+# Calculate the total counts for Rat-specific features
+# Extract features matching the Rat pattern ("premRNARnor6--") from the "counts" layer and sum them row-wise
+graft$RatCounts <- rowSums(FetchData(graft, vars = grep("^premRNARnor6--", rownames(graft),
+                                                        invert = FALSE, value = TRUE), layer = "counts"))
 
-# Read and combine the data from all CSV files
+# Calculate the total counts for Human-specific features
+# Extract features NOT matching the Rat pattern ("premRNARnor6--") from the "counts" layer and sum them row-wise
+graft$HumanCounts <- rowSums(FetchData(graft, vars = grep("^premRNARnor6--", rownames(graft),
+                                                          invert = TRUE, value = TRUE), layer = "counts"))
 
-gem_classification \<- gem_classification.files %\>%
-lapply(function(file) { \# Apply the following function to each file: df
-\<- read.csv(file) \# Read the current file into a data frame
-df\$filename \<- gsub( \# Add a new column 'filename' "\_", "-", \#
-Replace underscores with dashes gsub(".gem_classification.csv", "", \#
-Remove the ".gem_classification.csv" suffix basename(file)) \# Extract
-the base name of the file ) return(df) \# Return the modified data frame
-}) %\>% bind_rows() \# Combine all data frames into a single data frame
+# Compute the percentage of counts attributed to Rat-specific features
+graft$PercentRat <- PercentageFeatureSet(graft, pattern = "^premRNARnor6--")
 
-# Set unique row names for the combined data frame using filename and barcode
+# Compute the percentage of counts attributed to Human-specific features
+# Use the set of features that do not match the Rat-specific pattern
+graft$PercentHuman <- PercentageFeatureSet(graft, features = 
+                                             grep("^premRNARnor6--", rownames(graft), invert = TRUE))
 
-rownames(gem_classification) \<- paste0(
-gem_classification$filename,                   # Include the filename
-  "_",                                           # Separator
-  gem_classification$barcode \# Include the barcode )
+# Classify cells into species based on the percentage of Rat-specific features
+graft$Species <- case_when(
+  graft$PercentRat < 20 ~ "Human",   # Less than 20% Rat features indicates a Human cell
+  graft$PercentRat > 80 ~ "Rat",     # More than 80% Rat features indicates a Rat cell
+  TRUE ~ "Unknown"                   # Anything in between is classified as "Unknown"
+)
 
-# Add species classification metadata to the Seurat object
+# Generate a scatter plot showing Rat counts vs. Human counts
+# Group the points by the classified species
+FeatureScatter(graft, feature1 = "RatCounts", feature2 = "HumanCounts", group.by = "Species") +
+  ggtitle("Species Classification") + # Add a title to the plot
+  xlab("Rat Counts") +                # Label the x-axis
+  ylab("Human Counts")                # Label the y-axis
 
-da_diff \<- AddMetaData( da_diff, \# Existing Seurat object
-gem_classification\[, c("grch38", "rnor6", "call")\] \# Add specific
-columns: grch38, rnor6, call )
+# Create a subset of the Seurat object containing only cells classified as "Human"
+graft.human <- subset(graft, subset = Species == "Human")
 
-# Simplify and standardize the 'orig.ident' metadata for the Seurat object
+# And you can start with QC and so on...
 
-da_diff$orig.ident <- gsub(
-  "-30May2024", "",                              # Remove the date suffix
-  gsub("-Graft29weekspost-TX", "",               # Remove the "Graft29weekspost-TX" suffix
-       da_diff$orig.ident) \# Target the 'orig.ident' column )
 
-# Set cell identities to the modified 'orig.ident' values
+```
 
-Idents(da_diff) \<- da_diff\$orig.ident
 
-\`\`\`\`
-
-# Conclusion
-
-In this tutorial, we've covered the fundamentals of scRNA-seq data
-analysis using Seurat, from loading and preprocessing data to clustering
-and marker identification. For further learning, explore the [Seurat
-documentation](https://satijalab.org/seurat/) and try using your own
-dataset.
