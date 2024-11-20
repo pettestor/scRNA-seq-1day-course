@@ -8,6 +8,9 @@ editor:
 format:
   html:
     code-copy: true
+    toc: true
+    page-layout: full
+
 ---
 
 # 1. Introduction to Single-Cell RNA Sequencing (scRNA-seq)
@@ -36,13 +39,6 @@ resulting in a count matrix. If your data is from a different technology
 may not be applicable, and an alternative method will be required to
 generate the count matrix.
 
-## scRNA-seq Workflow
-
-The typical workflow for scRNA-seq analysis includes: 1. Data loading
-and quality control 2. Normalization and scaling 3. Dimensionality
-reduction 4. Clustering and cell-type identification 5. Differential
-expression analysis
-
 ------------------------------------------------------------------------
 
 # 2. Setting Up the Environment
@@ -54,8 +50,8 @@ Before starting, ensure you have the following packages installed:
 ```{r setup, eval=FALSE}
 # Install required packages
 
-install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", "tibble","viridis","SingleR","scRNAseq","patchwork",
-                   "scater", "remotes", "harmony"))
+install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", "tibble","viridis","SingleR","scRNAseq","patchwork","org.Hs.eg.db",
+                   "scater", "remotes", "harmony","clusterProfiler"))
 
 # DoubletFinder is not available in Rs standard repositories, so we need to install it from GitHub
 remotes::install_github('chris-mcginnis-ucsf/DoubletFinder')
@@ -78,6 +74,8 @@ library(scRNAseq)
 library(SingleR)
 library(tibble)
 library(viridis)
+library(clusterProfiler)
+library(org.Hs.eg.db)
 
 sampleColors <-  c("#2A363B", "#019875", "#99B898", "#FECEA8", "#FF847C", "#E84A5F",
                    "#C0392B", "#96281B","#B0C4B1", "#D9A441", "#577284", "#4A235A", 
@@ -98,7 +96,9 @@ control to filter out low-quality and doublet cells.
 
 We will use the four midbrain organoid samples sequenced using 10X
 scRNA-seq at two timepoints. The data set comes from this
-[publication](https://pubmed.ncbi.nlm.nih.gov/33445654/).
+[publication](https://www.nature.com/articles/s41467-021-27464-5).
+
+The goal of this section is to load the raw expression data from 10X CellRanger and to create a Seurat object. A Seurat object is organized into multiple slots, including assays (storing expression data), meta.data (holding cell-level annotations), and reductions (storing dimensionality reduction results like PCA or UMAP). This design facilitates seamless preprocessing, visualization, and statistical analysis workflows within a single framework. The flexibility of the Seurat object allows for efficient handling of large datasets and integration of multi-modal data, such as RNA and protein measurements.
 
 ```{r load-data}
 # List all directories within the "data/" directory, excluding the top-level "data/" itself.
@@ -156,7 +156,7 @@ of which we’ll address here:
     the data, masking the relevant biological differences and
     complicating interpretation of the results.
 
-#### Level 1 QC with Seurat
+#### QC with Seurat
 
 ```{r quality-control}
 # Calculate the percentage of mitochondrial genes
@@ -174,6 +174,7 @@ VlnPlot(da_diff, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
 stats <- cbind(da_diff$percent.mt, da_diff$nFeature_RNA, da_diff$nCount_RNA)
 
 # Calculate outlyingness scores for each cell based on the selected statistics
+# we will append tthe result to the meta data of the seurat object
 # only.outlyingness = TRUE returns only the outlyingness values
 da_diff$outlying <- adjOutlyingness(stats, only.outlyingness = TRUE)
 
@@ -186,10 +187,15 @@ summary(outlier)
 # Add a column to da_diff indicating if each cell is an outlier
 da_diff$is.outlier <- outlier
 
+VlnPlot(da_diff, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
+        split.by = "is.outlier",
+        ncol = 3,pt.size = 0) & scale_fill_manual(values=sampleColors)
+
+
 # Plot nFeature_RNA against nCount_RNA, coloring points by outlier status
 # Facet by 'orig.ident' to visualize each sample separately
 da_diff@meta.data %>% 
-  ggplot(aes(x = nFeature_RNA, y = nCount_RNA, color = is.outlier)) + 
+  ggplot(aes(x = nFeature_RNA, y = percent.mt, color = is.outlier)) + 
   geom_point(alpha = 0.6) + 
   scale_color_manual(values = c(sampleColors)) + 
   facet_wrap(~orig.ident) + 
@@ -309,7 +315,7 @@ cycle phase, or other unwanted sources of noise.
 da_diff.filter <- NormalizeData(da_diff)
   
 # Identify highly variable features
-da_diff.filter <- FindVariableFeatures(da_diff.filter, selection.method = "vst", nfeatures = 2000)
+da_diff.filter <- FindVariableFeatures(da_diff.filter, nfeatures = 2000)
 
 VariableFeaturePlot(da_diff.filter) %>% 
   LabelPoints(points = head(VariableFeatures(da_diff.filter),n=20), repel = TRUE)
@@ -389,16 +395,12 @@ easier to explore potential cell types or states within the dataset.
 
 ```{r clustering}
 # Find clusters
-da_diff.filter <- FindNeighbors(da_diff.filter, dims = 1:10)
-da_diff.filter <- FindClusters(da_diff.filter, resolution = 0.5)
+da_diff.filter <- FindNeighbors(da_diff.filter, dims = 1:20)
+da_diff.filter <- FindClusters(da_diff.filter, resolution = 0.2)
 
 # Run UMAP for visualization
-da_diff.filter <- RunUMAP(da_diff.filter, dims = 1:10)
+da_diff.filter <- RunUMAP(da_diff.filter, dims = 1:20)
 DimPlot(da_diff.filter, reduction = "umap", group.by = "seurat_clusters")+DimPlot(da_diff.filter, group.by = "orig.ident", reduction = "umap",cols = sampleColors)
-
-
-FeaturePlot(da_diff.filter, features = c("STMN2","COL1A1","LMX1A"),order=T)+DimPlot(da_diff.filter, group.by = "orig.ident", reduction = "umap",cols = sampleColors,shuffle = T)
-
 
 ```
 
@@ -438,11 +440,12 @@ da_integrated <- RunHarmony(da_diff.filter, group.by.vars = "orig.ident")
 # Proceed with clustering and visualization on the Harmony-adjusted embeddings
 da_integrated <- FindNeighbors(da_integrated, dims = 1:30, reduction = "harmony")
 da_integrated <- FindClusters(da_integrated, resolution = 0.1)
-da_integrated <- RunUMAP(da_integrated, reduction = "harmony", dims = 1:30)
+da_integrated <- RunUMAP(da_integrated, reduction = "harmony",
+                         dims = 1:30,reduction.name = "umap_harmony")
 
 # Visualize the integrated data
-DimPlot(da_integrated, reduction = "umap", group.by = "seurat_clusters") +
-DimPlot(da_integrated, group.by = "orig.ident", reduction = "umap", cols = sampleColors)
+DimPlot(da_integrated, reduction = "umap_harmony", group.by = "seurat_clusters") +
+DimPlot(da_integrated, group.by = "orig.ident", reduction = "umap_harmony", cols = sampleColors)
 ```
 
 ------------------------------------------------------------------------
@@ -492,7 +495,7 @@ marker genes have been identified, including:
 These genes serve as a starting point for assessing the identity of
 dopamine neurons in clusters derived from stem cell differentiation.
 
-#### 6.1 Canonical Markers
+#### Canonical Markers
 
 ```{r canonical-markers}
 
@@ -502,8 +505,8 @@ genes <- c(
   "SOX2", "HES1", "NES",         # Neurogenesis
   "FABP7", "SHH", "CORIN", "FOXA2", "LMX1B", "OTX2", # Floor plate progenitors
   "TH", "EN1", "PBX1", "STMN2",           # DA neurogenesis
-  "AQP4", "GFAP", "EDNRB", "GJA1",        # Astrocyte
-  "COL1A1", "COL1A2"   # VLMC
+  "AQP4", "GFAP", "EDNRB",        # Astrocyte
+  "COL1A1", "COL1A2", "LUM"   # VLMC
 )
 
 # Violin plot for canonical markers
@@ -513,50 +516,58 @@ DotPlot(da_integrated, features = genes,dot.scale = 8)+
   # Update colors to something prettier
 viridis::scale_color_viridis(direction = -1)
 
-# Define gene modules as a list
+
+```
+
+Instead of looking at one marker at a time we can also create list(s) of relevant genes and calculate a module score for each cluster. This can help us identify the most relevant genes for each cluster and potentially identify new markers.
+
+In this example we are using Gene Ontology terms to create gene modules for neurogenesis, cell cycle and stress response. We then calculate a module score for each cluster and visualize the results.
+
+
+
+```{r module-markers}
+# Download gene modules from GO related to neurogenesis, cell cycle and stress
+
 gene_modules <- list(
-  Cell_Cycle = c("MKI67", "TOP2A", "CENPF"),
-  Neurogenesis = c("SOX2", "HES1", "NES"),
-  Floor_Plate_Progenitors = c("FABP7", "SHH", "CORIN", "FOXA2", "LMX1B", "OTX2"),
-  DA_Neurogenesis = c("TH", "EN1", "PBX1", "STMN2"),
-  Astrocyte = c("AQP4", "GFAP", "EDNRB", "GJA1"),
-  VLMC = c("COL1A1", "COL1A2")
-)
+  # Generation of cells within the nervous system
+  Neurogenesis=bitr("GO:0071542", fromType="GOALL", toType="SYMBOL", OrgDb='org.Hs.eg.db') %>% pull("SYMBOL"), 
+  # Cellular response to hypoxia
+  Stress_Response=bitr("GO:0071456", fromType="GOALL", toType="SYMBOL", OrgDb='org.Hs.eg.db') %>% pull("SYMBOL"),
+  # Cell cycle
+  Cell_Cycle=bitr("GO:0007049", fromType="GOALL", toType="SYMBOL", OrgDb='org.Hs.eg.db') %>% pull("SYMBOL"))
+
 
 for(i in names(gene_modules)) {
- 
   da_integrated <- AddModuleScore(object = da_integrated, 
                                   features = list(gene_modules[[i]]), 
                                   name = i)
-  
 }
 
 
-plot_list <- list()
-
-
-# Plot each module score individually
-for (module in paste0(names(gene_modules),"1")) {
-  p <- FeaturePlot(
+featureplot.gene_modules <- FeaturePlot(
     da_integrated,
-    features = module,
-    reduction = "umap", # or the dimensionality reduction method you are using
+    features = paste0(names(gene_modules),"1"),
     pt.size = 1,
     order  = TRUE,
     label = TRUE,
     cols = c("lightgrey", "darkred"),
-    min.cutoff = "q9"
-  ) + NoLegend() + ggtitle(paste(module))
-  
-  plot_list[[module]] <- p
-}
+    min.cutoff = "q8"
+)
 
-# Combine plots using patchwork
-wrap_plots(plot_list, ncol = 2)
+violinplot.gene_modules <- VlnPlot(
+    da_integrated,
+    features = paste0(names(gene_modules),"1"),
+    pt.size = 0)
+
+violinplot.gene_modules / featureplot.gene_modules
 
 ```
 
-#### 6.2 Identifying Marker Genes
+#### Identifying Marker Genes
+
+Marker genes are genes that are differentially expressed in specific cell populations or clusters and can be used to characterize the biological functions and identities of these populations. In scRNA-seq analysis, marker genes are typically identified by comparing the expression levels between clusters of cells, often using statistical tests to find genes that are uniquely expressed in particular groups.
+
+Here we will use the Seurat funciton *FindAllMarkers* to identify marker genes for each cluster. We will then visualize the top 10 marker genes for each cluster using a heatmap.
 
 ```{r markers}
 # Find markers for each cluster
@@ -577,9 +588,13 @@ DoHeatmap(da_integrated, features = da_diff.markers.top, group.by = "seurat_clus
 
 ```
 
-#### 6.3 Automated annotation using singleR
+#### Automated annotation using singleR
 
-```{r singler}
+In single-cell RNA sequencing (scRNA-seq) studies, identifying cell types within a heterogeneous population is a key challenge. One way to classify cells is by using reference-based classification methods, which rely on prior knowledge of gene expression profiles for known cell types. SingleR is a powerful tool for this task, which performs reference-based classification of single-cell data by comparing the gene expression profiles of the cells in your dataset to a reference dataset of annotated cell types.
+
+In this analysis, we use the LaMannoBrainData reference dataset, which contains gene expression data for human embryonic brain cell types, to classify cells from a different dataset (da_integrated). The classification results are then added to the Seurat object as metadata, allowing us to visualize and analyze the cell type predictions.
+
+```{r singler, cache = TRUE}
 # Find markers for each cluster
 la_manno_ref <- LaMannoBrainData(which = "human-embryo")
 logcounts(la_manno_ref) <- log2(counts(la_manno_ref)+1)
@@ -597,6 +612,11 @@ da_integrated$SingleR_label <- singleR_results$labels
 
 # Visualize SingleR predictions
 DimPlot(da_integrated, group.by = "SingleR_label", reduction = "umap",label = T)
+```
+
+To further refine the cell type classification, we can filter out cell types with low representation in the dataset. This step helps focus the analysis on the most prevalent and well-characterized cell types, improving the interpretability of the results.
+
+```{r singler_filter, cache = TRUE}
 
 # Calculate percentage of each cell type
 cell_type_counts <- table(da_integrated$SingleR_label)
@@ -614,16 +634,92 @@ DimPlot(da_integrated, group.by = "Filtered_SingleR_label", label = TRUE, na.val
 
 ```
 
-------------------------------------------------------------------------
+#### Automated annotation using Seurats labeltransfer
 
-# 8. Custom Visualizations
+Seurat's Label Transfer function is another method used to transfer cell type annotations or other labels from a reference dataset onto a query dataset in single-cell RNA-seq analysis. Label Transfer works by first aligning the datasets through the integration of shared biological features, then identifying anchor points (common structures or cell states) between the reference and query. Using these anchors, Seurat calculates a prediction score for each label in the reference dataset and transfers the highest-scoring labels to the query cells. This method maintains biological consistency between datasets while accounting for batch effects or differences in sequencing protocols, making it a powerful tool for harmonizing annotations across single-cell studies.
 
-```{r custom-plot}
-# Customize UMAP with cluster annotations
-#DimPlot(da_diff.filter, reduction = "umap", label = TRUE) + ggtitle("UMAP with Cluster Labels")
+
+```{r label_t}
+
+la_manno.seu <- CreateSeuratObject(counts = counts(la_manno_ref), project = "LaMannoBrainData",
+                                   meta.data = data.frame(colData(la_manno_ref)))
+
+la_manno.seu <- la_manno.seu[,la_manno.seu$Cell_type!="Unk"]
+la_manno.seu <- la_manno.seu %>% NormalizeData() %>% FindVariableFeatures(nfeatures = 4000) %>% ScaleData() %>% RunPCA(npcs = 30, verbose = F)
+
+
+# Find anchors between the reference and query datasets
+anchors <- FindTransferAnchors(reference = la_manno.seu, query = da_integrated, dims = 1:30)
+
+# Transfer labels from the reference to the query dataset
+predictions <- TransferData(anchorset = anchors, refdata =la_manno.seu$Cell_type)
+
+# Add transferred labels to the query dataset
+da_integrated <- AddMetaData(da_integrated, metadata = predictions)
+
+
+# Lets remove cells only found in low numbers
+cell_type_counts_label_transfer <- table(predictions$predicted.id)
+
+# Update metadata to include only cell types above threshold
+da_integrated$filtered_label_transfer <- ifelse(
+  da_integrated$predicted.id %in% names(cell_type_counts_label_transfer[cell_type_counts_label_transfer > 200]),
+  da_integrated$predicted.id,
+  NA  # or use "Other"
+)
+
+
+# Visualize the transferred labels
+DimPlot(da_integrated, group.by = "filtered_label_transfer", reduction = "umap",label = T)+
+  FeaturePlot(da_integrated, features = c("prediction.score.max"),order=T,min.cutoff = "q9")
 ```
 
-# 9. Extras
+
+
+------------------------------------------------------------------------
+
+# 7. Extras
+
+### Pathway Analysis with clusterProfiler
+
+In this section, we perform pathway enrichment analysis using marker genes identified in **Section 6.2**. The **clusterProfiler** package allows us to investigate biological pathways associated with clusters or conditions of interest.
+
+```{r pw1}
+# Filter significant markers for a specific cluster (e.g., Cluster 1)
+cluster5_markers <- da_diff.markers %>% 
+  filter(cluster == "5" & p_val_adj < 0.05) %>%  # Adjust for your cluster and significance threshold
+  pull(gene)
+
+# Convert gene symbols to Entrez IDs
+entrez_ids <- bitr(cluster5_markers, fromType = "SYMBOL", 
+                   toType = "ENTREZID", 
+                   OrgDb = org.Hs.eg.db)
+
+# GO enrichment analysis
+go_results <- enrichGO(gene = entrez_ids$ENTREZID,
+                       OrgDb = org.Hs.eg.db, 
+                       keyType = "ENTREZID", 
+                       ont = "BP",         # Biological Process ontology
+                       pAdjustMethod = "BH", 
+                       pvalueCutoff = 0.05)
+
+# View summary of enriched GO terms
+# Dot plot
+dotplot(go_results, showCategory = 10) + 
+  ggtitle("Top 10 GO Terms for Biological Processes")
+
+# KEGG pathway enrichment analysis
+kegg_results <- enrichKEGG(gene = entrez_ids$ENTREZID,
+                           organism = 'hsa',       # Use 'mmu' for mouse
+                           pvalueCutoff = 0.05)
+
+# Visualize KEGG results
+dotplot(kegg_results, showCategory = 10) +
+  ggtitle("Top 10 Enriched KEGG Pathways")
+
+
+
+```
 
 ### Identifying number of clusters
 
@@ -648,18 +744,18 @@ library(clustree)
 
 # Perform clustering for a range of resolutions
 resolutions <- seq(0.1, 1, by = 0.2)         # Define a range of resolutions
-da_diff <- FindNeighbors(da_diff, dims = 1:10) # Identify cell neighbors
+da_diff <- FindNeighbors(da_integrated, dims = 1:20, reduction = "harmony") # Identify cell neighbors
 
 for (res in resolutions) {
-  da_diff <- FindClusters(
-    da_diff,
+  da_integrated <- FindClusters(
+    da_integrated,
     resolution = res,                          # Specify the current resolution
     verbose = FALSE                            # Suppress output
   )
 }
 
 # clustree visualization
-clustree(da_diff@meta.data, prefix = "RNA_snn_res.") +
+clustree(da_integrated@meta.data, prefix = "RNA_snn_res.") +
   theme_minimal() +
   ggtitle("Clustering Resolution Tree") +
   xlab("Resolution") +
@@ -686,15 +782,12 @@ clustering results at a given resolution.
 # Load required libraries
 library(cluster)
 
-# Choose a resolution for clustering
-da_diff <- FindClusters(da_diff, resolution = 0.1)
-
 # Extract the cluster assignments and the PCA coordinates
-clusters <- da_diff$seurat_clusters              # Cluster labels
-pca_coords <- Embeddings(da_diff, reduction = "pca")[, 1:10] # PCA coordinates (first 10 dimensions)
+clusters <- da_integrated$RNA_snn_res.0.1              # Cluster labels, here with resolution 0.1
+coords <- Embeddings(da_integrated, reduction = "harmony")[, 1:20] # PCA coordinates (first 10 dimensions)
 
 # Compute the silhouette width
-sil <- silhouette(as.numeric(clusters), dist(pca_coords))
+sil <- silhouette(as.numeric(clusters)-1, dist(coords))
 
 # Convert silhouette object to a data frame for visualization
 sil_df <- as.data.frame(sil[, 1:3]) # Columns: cell ID, cluster, silhouette width

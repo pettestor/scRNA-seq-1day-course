@@ -4,3 +4,5 @@
 .Ruserdata
 
 /.quarto/
+scRNAseq-course.rmarkdown
+scRNAseq-course_cache/
