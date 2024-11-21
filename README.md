@@ -32,14 +32,25 @@ To be able to follow along you need to have a basic understanding of R programmi
 6.  **Annotating Clusters**
     -   Canonical markers
     -   Identifying marker genes
+7. **Extras**
+    -   Pathway Analysis with clusterProfiler
+    -   Identifying number of clusters
+    -   Cell Cycle Analysis
+    -   Species classification
+
 
 ## Installation
 
 Make sure you have the required R packages installed:
 
 ``` r
-install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", 
-                   "scater", "DoubletFinder", "skimr", "harmony"))
+# Install required packages
+
+install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", "tibble","viridis","SingleR","scRNAseq","patchwork",
+"org.Hs.eg.db", "scater", "remotes", "harmony","clusterProfiler"))
+
+# DoubletFinder is not available in Rs standard repositories, so we need to install it from GitHub
+remotes::install_github('chris-mcginnis-ucsf/DoubletFinder')
 
 ```
 
@@ -52,13 +63,10 @@ git clone https://github.com/your_username/scRNA-seq-analysis.git
 cd scRNA-seq-analysis
 ```
 
-If you dont have git installed you can download the course content by clicking the green "code" button and selecting "Download ZIP".
+If you dont have git installed you can download the course content by clicking the green "code" button on the top right of this page and selecting "Download ZIP". 
 
 2.  Open [scRNAseq-course.qmd](https://github.com/pettestor/scRNA-seq-1day-course/blob/main/scRNAseq-course.qmd) in R Studio and follow the instructions for analyzing your scRNA-seq data.
 
-## License
-
-This project is licensed under the MIT License.
 
 ## Author
 
