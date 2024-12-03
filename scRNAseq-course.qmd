@@ -10,7 +10,6 @@ format:
     code-copy: true
     toc: true
     page-layout: full
-
 ---
 
 # 1. Introduction to Single-Cell RNA Sequencing (scRNA-seq)
@@ -98,7 +97,15 @@ We will use the four midbrain organoid samples sequenced using 10X
 scRNA-seq at two timepoints. The data set comes from this
 [publication](https://www.nature.com/articles/s41467-021-27464-5).
 
-The goal of this section is to load the raw expression data from 10X CellRanger and to create a Seurat object. A Seurat object is organized into multiple slots, including assays (storing expression data), meta.data (holding cell-level annotations), and reductions (storing dimensionality reduction results like PCA or UMAP). This design facilitates seamless preprocessing, visualization, and statistical analysis workflows within a single framework. The flexibility of the Seurat object allows for efficient handling of large datasets and integration of multi-modal data, such as RNA and protein measurements.
+The goal of this section is to load the raw expression data from 10X
+CellRanger and to create a Seurat object. A Seurat object is organized
+into multiple slots, including assays (storing expression data),
+meta.data (holding cell-level annotations), and reductions (storing
+dimensionality reduction results like PCA or UMAP). This design
+facilitates seamless preprocessing, visualization, and statistical
+analysis workflows within a single framework. The flexibility of the
+Seurat object allows for efficient handling of large datasets and
+integration of multi-modal data, such as RNA and protein measurements.
 
 ```{r load-data}
 # List all directories within the "data/" directory, excluding the top-level "data/" itself.
@@ -230,14 +237,35 @@ expression alone. The absence of distinct markers complicates the
 identification process, as the expected combined expression patterns of
 doublets may closely resemble those of mature cells.
 
+The table below compares the results of genetic demultiplexing
+(considered the ground truth) with the predictions of two doublet
+detection algorithms, **DoubletFinder** and **scDblFinder**, for two 10X
+samples derived from iDanoids (converted neurons, a mix of three cell
+lines). Rows represent the genetic demultiplexing results, while columns
+show the classification outcomes from the algorithms.
+
+|         | Both | DoubletFinder | scDblFinder | Neither |
+|---------|------|---------------|-------------|---------|
+| Doublet | 76   | 1             | 71          | 60      |
+| Singlet | 85   | 246           | 260         | 7305    |
+
+: **Question**: Based on these results, do you find the predictions from
+these algorithms trustworthy?
+
 #### Identifying and Removing Doublets
 
-One common approach to identify doublets is using the **DoubletFinder**
+Nonetheless, we will proceed with running the analysis to familiarize
+ourselves with the method and gain insights into its application. One
+common approach to identify doublets is using the **DoubletFinder**
 package in R. Below is a script demonstrating how to use this method on
 your Seurat object to identify and filter out doublets from your
 dataset. For this analysis with need to normalize and scale the data and
 also perform dimensionality reduction. We will cover these in more
 detail later.
+
+doubletFinder will add new columns to the meta data. We rename these for
+clarity. Finally we plot the predicted doublet status versus number of
+detected genes.
 
 ```{r}
 # Normalize data
@@ -253,8 +281,12 @@ da_diff <- doubletFinder(da_diff,
                                    nExp = round(0.05 * ncol(da_diff)), 
                                    reuse.pANN = FALSE)
 
+colnames(da_diff@meta.data) <- colnames(da_diff@meta.data) %>%
+  stringr::str_replace("pANN.*", "predicted_doublet_probability") %>%
+  stringr::str_replace("DF.classifications.*", "doublet_classification")
 
-da_diff@meta.data %>% ggplot(aes(x=nFeature_RNA, y=nCount_RNA, color=`DF.classifications_0.25_0.1_508`)) + geom_point() + scale_color_manual(values=c("black", "red"))+facet_wrap(~orig.ident+DF.classifications_0.25_0.1_508)
+
+da_diff@meta.data %>% ggplot(aes(x=nFeature_RNA, y=nCount_RNA, color=doublet_classification)) + geom_point() + scale_color_manual(values=c("black", "red"))+facet_wrap(~orig.ident+doublet_classification)
 
 ```
 
@@ -269,7 +301,7 @@ high-quality, single-cell data remains for downstream analyses.
 ```{r}
 # Final filtering step to remove outliers and doublets
 # Filter out cells that were flagged as outliers or doublets
-da_diff.filter<- subset(da_diff, subset = !outlier & DF.classifications_0.25_0.1_508 != "Doublet")
+da_diff.filter<- subset(da_diff, subset = !outlier & doublet_classification != "Doublet")
 
 # Summary of cells retained after filtering
 print(paste("Number of cells before final filtering:", ncol(da_diff)))
@@ -286,6 +318,64 @@ Normalization corrects for differences in sequencing depth between
 cells, typically by transforming the raw counts into counts per cell or
 counts per million (CPM), followed by log transformation. This step
 ensures that expression levels are comparable across cells.
+
+The total number of UMIs observed for a cell are attributable to 1) cell
+size (higher cell size =\> more RNA content =\> more expected UMIs) and
+2) sequencing depth, which will have a large random component. Let’s
+look at the expression of a ubiquoulsy expressed gene that has been
+described as a housekeeping gene in snRNA-seq data (*MALAT1*- a long
+noncoding RNA):
+
+```{r malat1}
+total_umis <- colSums(x = GetAssayData(da_diff.filter,layer = "counts"))
+gene <- "MALAT1"
+gene_umi <- GetAssayData(da_diff.filter,layer = "counts")["MALAT1",]
+
+ggplot(data = data.frame("total_cell_umi" = total_umis, "gene_umi" = gene_umi), aes(total_cell_umi, gene_umi)) +
+  geom_point() +
+  theme_bw(base_size = 14) +
+  xlab("Total sequencing depth") +
+  ylab(paste0("Gene UMI(", gene))+geom_smooth(method = "lm")
+```
+
+The gene *MALAT1* exhibits an almost linear relationship with a cell's
+sequencing depth. In this case, the "heterogeneity across cells" in
+*Malat1* expression levels is primarily due to differences in sequencing
+depth rather than biological variability, making it less biologically
+interesting.
+
+If all genes exhibited this linear behavior, we could simply account for
+sequencing depth by performing a linear regression of observed gene
+counts against each cell's total sequencing depth. However, this
+approach is problematic because it would negatively impact the
+expression of marker genes, such as *NR4A2*, *COL1A1*, and *AQP4*. These
+marker genes are only expressed in specific subsets of cells, and
+applying linear regression to remove the effect of sequencing depth
+would risk dampening their expression, leading to a loss of biologically
+relevant information.
+
+Instead of regressing out sequencing depth, an alternative approach is
+to use a global scaling factor (e.g., 10,000) to normalize all cells to
+a uniform sequencing depth while accounting for the original sequencing
+depth of each cell. To minimize the influence of outliers, the scaled
+values are log-transformed after adding a pseudocount of 1. In Seurat,
+this normalization can be performed using the `NormalizeData` function:
+
+```{r normalization}
+# Normalize data
+da_diff.filter <- NormalizeData(da_diff.filter)
+
+gene_umi_normalized <- GetAssayData(da_diff.filter,layer = "data")["MALAT1",]
+
+ggplot(data = data.frame("total_cell_umi" = total_umis, "gene_umi_norm" = gene_umi_normalized), aes(total_cell_umi, gene_umi_norm)) +
+  geom_point() +
+  theme_bw(base_size = 14) +
+  xlab("Total sequencing depth") +
+  ylab(paste0("Gene UMI(", gene))
+  
+```
+
+
 
 Finding variable features identifies genes with significant expression
 variability across cells, which is important because these genes often
@@ -310,10 +400,7 @@ differences in gene variance. It also has the flexibility to regress out
 certain sources of variation, such as mitochondrial gene content, cell
 cycle phase, or other unwanted sources of noise.
 
-```{r normalization}
-# Normalize data
-da_diff.filter <- NormalizeData(da_diff)
-  
+```{r variable_f}
 # Identify highly variable features
 da_diff.filter <- FindVariableFeatures(da_diff.filter, nfeatures = 2000)
 
@@ -519,11 +606,14 @@ viridis::scale_color_viridis(direction = -1)
 
 ```
 
-Instead of looking at one marker at a time we can also create list(s) of relevant genes and calculate a module score for each cluster. This can help us identify the most relevant genes for each cluster and potentially identify new markers.
+Instead of looking at one marker at a time we can also create list(s) of
+relevant genes and calculate a module score for each cluster. This can
+help us identify the most relevant genes for each cluster and
+potentially identify new markers.
 
-In this example we are using Gene Ontology terms to create gene modules for neurogenesis, cell cycle and stress response. We then calculate a module score for each cluster and visualize the results.
-
-
+In this example we are using Gene Ontology terms to create gene modules
+for neurogenesis, cell cycle and stress response. We then calculate a
+module score for each cluster and visualize the results.
 
 ```{r module-markers}
 # Download gene modules from GO related to neurogenesis, cell cycle and stress
@@ -565,9 +655,16 @@ violinplot.gene_modules / featureplot.gene_modules
 
 #### Identifying Marker Genes
 
-Marker genes are genes that are differentially expressed in specific cell populations or clusters and can be used to characterize the biological functions and identities of these populations. In scRNA-seq analysis, marker genes are typically identified by comparing the expression levels between clusters of cells, often using statistical tests to find genes that are uniquely expressed in particular groups.
+Marker genes are genes that are differentially expressed in specific
+cell populations or clusters and can be used to characterize the
+biological functions and identities of these populations. In scRNA-seq
+analysis, marker genes are typically identified by comparing the
+expression levels between clusters of cells, often using statistical
+tests to find genes that are uniquely expressed in particular groups.
 
-Here we will use the Seurat funciton *FindAllMarkers* to identify marker genes for each cluster. We will then visualize the top 10 marker genes for each cluster using a heatmap.
+Here we will use the Seurat funciton *FindAllMarkers* to identify marker
+genes for each cluster. We will then visualize the top 10 marker genes
+for each cluster using a heatmap.
 
 ```{r markers}
 # Find markers for each cluster
@@ -590,9 +687,20 @@ DoHeatmap(da_integrated, features = da_diff.markers.top, group.by = "seurat_clus
 
 #### Automated annotation using singleR
 
-In single-cell RNA sequencing (scRNA-seq) studies, identifying cell types within a heterogeneous population is a key challenge. One way to classify cells is by using reference-based classification methods, which rely on prior knowledge of gene expression profiles for known cell types. SingleR is a powerful tool for this task, which performs reference-based classification of single-cell data by comparing the gene expression profiles of the cells in your dataset to a reference dataset of annotated cell types.
+In single-cell RNA sequencing (scRNA-seq) studies, identifying cell
+types within a heterogeneous population is a key challenge. One way to
+classify cells is by using reference-based classification methods, which
+rely on prior knowledge of gene expression profiles for known cell
+types. SingleR is a powerful tool for this task, which performs
+reference-based classification of single-cell data by comparing the gene
+expression profiles of the cells in your dataset to a reference dataset
+of annotated cell types.
 
-In this analysis, we use the LaMannoBrainData reference dataset, which contains gene expression data for human embryonic brain cell types, to classify cells from a different dataset (da_integrated). The classification results are then added to the Seurat object as metadata, allowing us to visualize and analyze the cell type predictions.
+In this analysis, we use the LaMannoBrainData reference dataset, which
+contains gene expression data for human embryonic brain cell types, to
+classify cells from a different dataset (da_integrated). The
+classification results are then added to the Seurat object as metadata,
+allowing us to visualize and analyze the cell type predictions.
 
 ```{r singler, cache = TRUE}
 # Find markers for each cluster
@@ -614,7 +722,10 @@ da_integrated$SingleR_label <- singleR_results$labels
 DimPlot(da_integrated, group.by = "SingleR_label", reduction = "umap",label = T)
 ```
 
-To further refine the cell type classification, we can filter out cell types with low representation in the dataset. This step helps focus the analysis on the most prevalent and well-characterized cell types, improving the interpretability of the results.
+To further refine the cell type classification, we can filter out cell
+types with low representation in the dataset. This step helps focus the
+analysis on the most prevalent and well-characterized cell types,
+improving the interpretability of the results.
 
 ```{r singler_filter, cache = TRUE}
 
@@ -636,8 +747,17 @@ DimPlot(da_integrated, group.by = "Filtered_SingleR_label", label = TRUE, na.val
 
 #### Automated annotation using Seurats labeltransfer
 
-Seurat's Label Transfer function is another method used to transfer cell type annotations or other labels from a reference dataset onto a query dataset in single-cell RNA-seq analysis. Label Transfer works by first aligning the datasets through the integration of shared biological features, then identifying anchor points (common structures or cell states) between the reference and query. Using these anchors, Seurat calculates a prediction score for each label in the reference dataset and transfers the highest-scoring labels to the query cells. This method maintains biological consistency between datasets while accounting for batch effects or differences in sequencing protocols, making it a powerful tool for harmonizing annotations across single-cell studies.
-
+Seurat's Label Transfer function is another method used to transfer cell
+type annotations or other labels from a reference dataset onto a query
+dataset in single-cell RNA-seq analysis. Label Transfer works by first
+aligning the datasets through the integration of shared biological
+features, then identifying anchor points (common structures or cell
+states) between the reference and query. Using these anchors, Seurat
+calculates a prediction score for each label in the reference dataset
+and transfers the highest-scoring labels to the query cells. This method
+maintains biological consistency between datasets while accounting for
+batch effects or differences in sequencing protocols, making it a
+powerful tool for harmonizing annotations across single-cell studies.
 
 ```{r label_t}
 
@@ -674,15 +794,16 @@ DimPlot(da_integrated, group.by = "filtered_label_transfer", reduction = "umap",
   FeaturePlot(da_integrated, features = c("prediction.score.max"),order=T,min.cutoff = "q9")
 ```
 
-
-
 ------------------------------------------------------------------------
 
 # 7. Extras
 
 ### Pathway Analysis with clusterProfiler
 
-In this section, we perform pathway enrichment analysis using marker genes identified in **Section 6.2**. The **clusterProfiler** package allows us to investigate biological pathways associated with clusters or conditions of interest.
+In this section, we perform pathway enrichment analysis using marker
+genes identified in **Section 6.2**. The **clusterProfiler** package
+allows us to investigate biological pathways associated with clusters or
+conditions of interest.
 
 ```{r pw1}
 # Filter significant markers for a specific cluster (e.g., Cluster 1)
@@ -904,5 +1025,3 @@ graft.human <- subset(graft, subset = Species == "Human")
 
 
 ```
-
-
