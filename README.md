@@ -68,7 +68,7 @@ remotes::install_github("immunogenomics/harmony")
 1.  If you have git installed on your computer you can clone this repository to your local machine:
 
 ``` bash
-git clone https://github.com/your_username/scRNA-seq-analysis.git
+git clone https://github.com/pettestor/scRNA-seq-1day-course.git
 cd scRNA-seq-analysis
 ```
 
