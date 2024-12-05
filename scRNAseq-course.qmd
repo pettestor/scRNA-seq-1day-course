@@ -49,8 +49,9 @@ Before starting, ensure you have the following packages installed:
 ```{r setup, eval=FALSE}
 # Install required packages
 
-install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", "tibble","viridis","SingleR","scRNAseq","patchwork","org.Hs.eg.db",
-                   "scater", "remotes", "harmony","clusterProfiler"))
+install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", 
+                   "tibble","viridis","SingleR","scRNAseq","patchwork",
+                   "org.Hs.eg.db","scater", "remotes", "harmony","clusterProfiler"))
 
 # DoubletFinder is not available in Rs standard repositories, so we need to install it from GitHub
 remotes::install_github('chris-mcginnis-ucsf/DoubletFinder')
@@ -93,8 +94,8 @@ control to filter out low-quality and doublet cells.
 
 ### Loading Data
 
-We will use the four midbrain organoid samples sequenced using 10X
-scRNA-seq at two timepoints. The data set comes from this
+We will use four midbrain organoid samples sequenced using 10X scRNA-seq
+at two timepoints. The data set comes from this
 [publication](https://www.nature.com/articles/s41467-021-27464-5).
 
 The goal of this section is to load the raw expression data from 10X
@@ -161,22 +162,34 @@ of which we’ll address here:
     different batches, which we refer to as “batch effects”. Batch
     effects are problematic as they can be major drivers of variation in
     the data, masking the relevant biological differences and
-    complicating interpretation of the results.
+    complicating interpretation of the results. We will look into
+    removal of batch effects in section 5.
 
-#### QC with Seurat
+#### Calculating and inspecting basic QC paramters
 
 ```{r quality-control}
 # Calculate the percentage of mitochondrial genes
 da_diff[["percent.mt"]] <- PercentageFeatureSet(da_diff, pattern = "^MT-")
 
 # Visualize QC metrics
+# Number of genes per cell ("nFeature_RNA") and UMIs per cell ("nFeature_RNA") was calculated when we intiated the Seurat object
 VlnPlot(da_diff, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
         ncol = 3,pt.size = 0)+geom_hline(yintercept = 5, linetype = "dashed") & scale_fill_manual(values=sampleColors)
 ```
 
 #### Automated identification of cutoffs for filtering
 
+Automated outlier detection is a useful method for identifying
+low-quality cells in scRNA-seq datasets. It removes the need for manual
+thresholding, which can be subjective and inconsistent, by relying on
+statistical measures to flag problematic cells. This approach is
+particularly helpful for datasets with complex or variable
+distributions, as it adjusts dynamically to the data. It also allows for
+multidimensional detection, identifying cells with unusual combinations
+of metrics rather than focusing on individual values.
+
 ```{r quality-control2}
+#| warning: false
 # Create a matrix of selected statistics from da_diff for analysis
 stats <- cbind(da_diff$percent.mt, da_diff$nFeature_RNA, da_diff$nCount_RNA)
 
@@ -249,25 +262,25 @@ show the classification outcomes from the algorithms.
 | Doublet | 76   | 1             | 71          | 60      |
 | Singlet | 85   | 246           | 260         | 7305    |
 
-: **Question**: Based on these results, do you find the predictions from
+
+**Question**: Based on these results, do you find the predictions from
 these algorithms trustworthy?
 
 #### Identifying and Removing Doublets
 
 Nonetheless, we will proceed with running the analysis to familiarize
-ourselves with the method and gain insights into its application. One
-common approach to identify doublets is using the **DoubletFinder**
-package in R. Below is a script demonstrating how to use this method on
-your Seurat object to identify and filter out doublets from your
-dataset. For this analysis with need to normalize and scale the data and
-also perform dimensionality reduction. We will cover these in more
-detail later.
+ourselves with the method using the **DoubletFinder** package in R.
+Below is a script demonstrating how to use this method on your Seurat
+object to identify and filter out doublets from your dataset. For this
+analysis with need to normalize and scale the data and also perform
+dimensionality reduction. We will cover these in more detail later.
 
 doubletFinder will add new columns to the meta data. We rename these for
 clarity. Finally we plot the predicted doublet status versus number of
 detected genes.
 
 ```{r}
+#| warning: false
 # Normalize data
 da_diff <- NormalizeData(da_diff)
 da_diff <- FindVariableFeatures(da_diff)
@@ -289,6 +302,8 @@ colnames(da_diff@meta.data) <- colnames(da_diff@meta.data) %>%
 da_diff@meta.data %>% ggplot(aes(x=nFeature_RNA, y=nCount_RNA, color=doublet_classification)) + geom_point() + scale_color_manual(values=c("black", "red"))+facet_wrap(~orig.ident+doublet_classification)
 
 ```
+
+**Question**: One more harsh way of removing doublets is to exclude cells with number of genes detected > than a manually assigned threshold. What are pros and cons of that approach?
 
 ### Final Outlier Filtering
 
@@ -327,15 +342,19 @@ described as a housekeeping gene in snRNA-seq data (*MALAT1*- a long
 noncoding RNA):
 
 ```{r malat1}
-total_umis <- colSums(x = GetAssayData(da_diff.filter,layer = "counts"))
+total_umis <- da_diff.filter$nCount_RNA
 gene <- "MALAT1"
 gene_umi <- GetAssayData(da_diff.filter,layer = "counts")["MALAT1",]
 
-ggplot(data = data.frame("total_cell_umi" = total_umis, "gene_umi" = gene_umi), aes(total_cell_umi, gene_umi)) +
-  geom_point() +
-  theme_bw(base_size = 14) +
+expressionMatrix <- data.frame("total_cell_umi" = total_umis, "gene_umi" = gene_umi)
+
+ggplot(data = expressionMatrix, 
+       aes(total_cell_umi, gene_umi)) +
+  geom_point(alpha=.5) +
   xlab("Total sequencing depth") +
-  ylab(paste0("Gene UMI(", gene))+geom_smooth(method = "lm")
+  ylab(paste0("Gene UMI(", gene,")"))+geom_smooth(method = "lm")+theme_bw()
+
+
 ```
 
 The gene *MALAT1* exhibits an almost linear relationship with a cell's
@@ -367,15 +386,15 @@ da_diff.filter <- NormalizeData(da_diff.filter)
 
 gene_umi_normalized <- GetAssayData(da_diff.filter,layer = "data")["MALAT1",]
 
-ggplot(data = data.frame("total_cell_umi" = total_umis, "gene_umi_norm" = gene_umi_normalized), aes(total_cell_umi, gene_umi_norm)) +
+ggplot(data = data.frame("total_cell_umi" = total_umis,
+                         "gene_umi_norm" = gene_umi_normalized), 
+       aes(total_cell_umi, gene_umi_norm)) +
   geom_point() +
   theme_bw(base_size = 14) +
   xlab("Total sequencing depth") +
   ylab(paste0("Gene UMI(", gene))
   
 ```
-
-
 
 Finding variable features identifies genes with significant expression
 variability across cells, which is important because these genes often
@@ -401,6 +420,7 @@ certain sources of variation, such as mitochondrial gene content, cell
 cycle phase, or other unwanted sources of noise.
 
 ```{r variable_f}
+#| warning: false
 # Identify highly variable features
 da_diff.filter <- FindVariableFeatures(da_diff.filter, nfeatures = 2000)
 
@@ -442,6 +462,8 @@ adding more components provides diminishing returns in variance
 explained.
 
 ```{r pca}
+#| warning: false
+
 # Run PCA
 da_diff.filter <- RunPCA(da_diff.filter, 
                          features = VariableFeatures(object = da_diff.filter),
@@ -481,6 +503,8 @@ plot provides an intuitive visual of how cells are grouped, making it
 easier to explore potential cell types or states within the dataset.
 
 ```{r clustering}
+#| warning: false
+
 # Find clusters
 da_diff.filter <- FindNeighbors(da_diff.filter, dims = 1:20)
 da_diff.filter <- FindClusters(da_diff.filter, resolution = 0.2)
@@ -520,7 +544,7 @@ and ensuring that biological signals are not overshadowed by batch
 variability.
 
 ```{r harmony-integration}
-
+#| warning: false
 # Integrate using Harmony
 da_integrated <- RunHarmony(da_diff.filter, group.by.vars = "orig.ident")
 
