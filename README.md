@@ -44,23 +44,18 @@ To be able to follow along you need to have a basic understanding of R programmi
 Make sure you have the required R packages installed:
 
 ``` r
-# Install required packages
+# Install CRAN packages
+install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", "patchwork","devtools", 
+                   "scRNAseq", "SingleR", "tibble", "viridis", "clusterProfiler"))
 
-install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", "tibble", "viridis", "patchwork", "remotes"))
+# Install Bioconductor packages
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+  install.packages("BiocManager")
+}
+BiocManager::install(c("scater", "harmony", "org.Hs.eg.db"))
 
-
-# The following packages are part of Bioconductor, so you'll need to set up Bioconductor to install them
-if (!requireNamespace("BiocManager", quietly = TRUE))
-    install.packages("BiocManager")
-BiocManager::install(c("SingleR", "scRNAseq", "org.Hs.eg.db", "scater", "clusterProfiler"))
-
-# DoubletFinder and harmonu is not available in Rs standard repositories, so we need to install them from GitHub
-remotes::install_github('chris-mcginnis-ucsf/DoubletFinder')
-remotes::install_github("immunogenomics/harmony")
-
-
-
-
+# Install DoubletFinder from GitHub (since it is not available on CRAN)
+devtools::install_github("chris-mcginnis-ucsf/DoubletFinder")
 ```
 
 ## Usage
@@ -74,7 +69,7 @@ cd scRNA-seq-analysis
 
 If you dont have git installed you can download the course content by clicking the green "code" button on the top right of this page and selecting "Download ZIP". 
 
-2.  Open [scRNAseq-course.qmd](https://github.com/pettestor/scRNA-seq-1day-course/blob/main/scRNAseq-course.qmd) in R Studio and follow the instructions for analyzing your scRNA-seq data.
+2.  Open the scRNAseq-course.html file in your prefered browser. In R Studio, navigate to the folder where you have the course content, start a new script and follow scRNAseq-course.html.
 
 
 ## Author
