@@ -422,6 +422,9 @@ ggplot(data = data.frame("total_cell_umi" = total_umis,
   
 ```
 
+
+### 4.2 Finding variable features & Scaling 
+
 Finding variable features identifies genes with significant expression
 variability across cells, which is important because these genes often
 capture biologically meaningful patterns, while others contribute more
@@ -434,8 +437,6 @@ it easier to compare cell-to-cell variation and enhancing the
 performance of algorithms used in downstream analyses like
 dimensionality reduction and clustering. Together, these steps improve
 the accuracy and interpretability of scRNA-seq data.
-
-### 4.2 Scaling 
 
 The **ScaleData** function is used to scale and center expression data.
 This process standardizes the data by shifting the distribution of each
@@ -459,6 +460,7 @@ VariableFeaturePlot(da_diff.filter) %>%
 da_diff.filter <- ScaleData(da_diff.filter)
 
 ```
+
 
 ------------------------------------------------------------------------
 
@@ -550,7 +552,7 @@ the apparent number and shape of clusters.
 
 # Find clusters
 da_diff.filter <- FindNeighbors(da_diff.filter, dims = 1:20)
-da_diff.filter <- FindClusters(da_diff.filter, resolution = 0.2)
+da_diff.filter <- FindClusters(da_diff.filter, resolution = 0.1)
 
 # Run UMAP for visualization
 da_diff.filter <- RunUMAP(da_diff.filter, dims = 1:20)
@@ -872,8 +874,15 @@ da_integrated$filtered_label_transfer <- ifelse(
 
 
 # Visualize the transferred labels
-DimPlot(da_integrated, group.by = "filtered_label_transfer", reduction = "umap_harmony", label = T)+
-  FeaturePlot(da_integrated, features = c("prediction.score.max"),order=T,min.cutoff = "q9")
+DimPlot(da_integrated, group.by = "filtered_label_transfer", reduction = "umap_harmony", label = T)
+```
+
+The prediction.score.max in Seurat's label transfer reflects the confidence of a predicted label for a query cell, ranging from 0 (low confidence) to 1 (high confidence). Higher scores indicate a strong match between the query cell and a reference cell type, while lower scores suggest poor matches, potential novel cell types, or technical noise. You can use thresholds to filter low-confidence cells or analyze them further for biological insights. Proper interpretation depends on the quality of the reference dataset and the context of your analysis.
+
+```{r label_t2}
+
+# 
+FeaturePlot(da_integrated, features = c("prediction.score.max"),order=T,min.cutoff = "q9",reduction = "umap_harmony")
 ```
 
 ------------------------------------------------------------------------
