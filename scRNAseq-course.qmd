@@ -42,23 +42,27 @@ generate the count matrix.
 
 # 2. Setting Up the Environment
 
-### Required Packages
+### 2.1 Required Packages
 
 Before starting, ensure you have the following packages installed:
 
 ```{r setup, eval=FALSE}
-# Install required packages
+# Install CRAN packages
+install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", "patchwork","devtools", 
+                   "scRNAseq", "SingleR", "tibble", "viridis", "clusterProfiler"))
 
-install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", 
-                   "tibble","viridis","SingleR","scRNAseq","patchwork",
-                   "org.Hs.eg.db","scater", "remotes", "harmony","clusterProfiler"))
+# Install Bioconductor packages
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+  install.packages("BiocManager")
+}
+BiocManager::install(c("scater", "harmony", "org.Hs.eg.db"))
 
-# DoubletFinder is not available in Rs standard repositories, so we need to install it from GitHub
-remotes::install_github('chris-mcginnis-ucsf/DoubletFinder')
+# Install DoubletFinder from GitHub (since it is not available on CRAN)
+devtools::install_github("chris-mcginnis-ucsf/DoubletFinder")
 
 ```
 
-### Loading Packages
+### 2.2 Loading Packages
 
 ```{r load-libraries, message=FALSE}
 # Load libraries
@@ -77,11 +81,14 @@ library(viridis)
 library(clusterProfiler)
 library(org.Hs.eg.db)
 
-sampleColors <-  c("#2A363B", "#019875", "#99B898", "#FECEA8", "#FF847C", "#E84A5F",
-                   "#C0392B", "#96281B","#B0C4B1", "#D9A441", "#577284", "#4A235A", 
-                   "#D7BDE2", "#8C6E63")
+sampleColors <-  c("#2A363B", "#019875", "#FF847C", "#E84A5F")
 
-
+clusterColors <- c(
+  "#C0392B", "#96281B", "#B0C4B1", "#D9A441", 
+  "#577284", "#4A235A", "#D7BDE2", "#8C6E63",
+  "#1F618D", "#FF5733", "#28B463", "#F39C12",
+  "#8E44AD", "#16A085", "#E74C3C"
+)
 
 ```
 
@@ -92,7 +99,7 @@ sampleColors <-  c("#2A363B", "#019875", "#99B898", "#FECEA8", "#FF847C", "#E84A
 In this section, we will load a sample dataset and perform quality
 control to filter out low-quality and doublet cells.
 
-### Loading Data
+### 3.1 Loading Data
 
 We will use four midbrain organoid samples sequenced using 10X scRNA-seq
 at two timepoints. The data set comes from this
@@ -126,7 +133,7 @@ da_diff.data <- Read10X(data.dir = dirs)
 da_diff <- CreateSeuratObject(counts = da_diff.data, min.cells = 3, min.features = 200)
 ```
 
-### Quality Control
+### 3.2 Quality Control
 
 A number of factors should be examined before downstream analyses, many
 of which we’ll address here:
@@ -207,11 +214,6 @@ summary(outlier)
 # Add a column to da_diff indicating if each cell is an outlier
 da_diff$is.outlier <- outlier
 
-VlnPlot(da_diff, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
-        split.by = "is.outlier",
-        ncol = 3,pt.size = 0) & scale_fill_manual(values=sampleColors)
-
-
 # Plot nFeature_RNA against nCount_RNA, coloring points by outlier status
 # Facet by 'orig.ident' to visualize each sample separately
 da_diff@meta.data %>% 
@@ -220,9 +222,16 @@ da_diff@meta.data %>%
   scale_color_manual(values = c(sampleColors)) + 
   facet_wrap(~orig.ident) + 
   theme_minimal()
+
+
+VlnPlot(da_diff, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
+        split.by = "is.outlier",
+        ncol = 3,pt.size = 0) & scale_fill_manual(values=sampleColors)
+
+
 ```
 
-### Doublet Removal
+### 3.3 Doublet Removal
 
 Doublets occur when two cells are captured together during single-cell
 RNA sequencing, leading to artificial readouts that can distort the
@@ -262,7 +271,6 @@ show the classification outcomes from the algorithms.
 | Doublet | 76   | 1             | 71          | 60      |
 | Singlet | 85   | 246           | 260         | 7305    |
 
-
 **Question**: Based on these results, do you find the predictions from
 these algorithms trustworthy?
 
@@ -299,13 +307,15 @@ colnames(da_diff@meta.data) <- colnames(da_diff@meta.data) %>%
   stringr::str_replace("DF.classifications.*", "doublet_classification")
 
 
-da_diff@meta.data %>% ggplot(aes(x=nFeature_RNA, y=nCount_RNA, color=doublet_classification)) + geom_point() + scale_color_manual(values=c("black", "red"))+facet_wrap(~orig.ident+doublet_classification)
+da_diff@meta.data %>% ggplot(aes(x=nFeature_RNA, y=nCount_RNA, color=doublet_classification)) + geom_point() + scale_color_manual(values=c("black", "red"))+facet_wrap(~orig.ident+doublet_classification)+theme_bw()
 
 ```
 
-**Question**: One more harsh way of removing doublets is to exclude cells with number of genes detected > than a manually assigned threshold. What are pros and cons of that approach?
+**Question**: One more harsh way of removing doublets is to exclude
+cells with number of genes detected \> than a manually assigned
+threshold. What are pros and cons of that approach?
 
-### Final Outlier Filtering
+### 3.4 Final Outlier Filtering
 
 After identifying potential outliers and doublets, we can apply a final
 filtering step to exclude cells that are flagged as low quality or
@@ -323,9 +333,14 @@ print(paste("Number of cells before final filtering:", ncol(da_diff)))
 print(paste("Number of cells retained after final filtering:", ncol(da_diff.filter)))
 ```
 
+**Question**: What are the risks of having to harsh or to lenient
+filtering for removal of bad cells?
+
 ------------------------------------------------------------------------
 
 # 4. Normalization and Scaling
+
+### 4.1 Normalization 
 
 Normalization, finding variable features, and scaling are essential
 preprocessing steps to prepare the data for downstream analysis.
@@ -334,17 +349,20 @@ cells, typically by transforming the raw counts into counts per cell or
 counts per million (CPM), followed by log transformation. This step
 ensures that expression levels are comparable across cells.
 
-The total number of UMIs observed for a cell are attributable to 1) cell
-size (higher cell size =\> more RNA content =\> more expected UMIs) and
-2) sequencing depth, which will have a large random component. Let’s
-look at the expression of a ubiquoulsy expressed gene that has been
-described as a housekeeping gene in snRNA-seq data (*MALAT1*- a long
-noncoding RNA):
+The total number of UMIs observed for a cell are attributable to
 
-```{r malat1}
+1.  cell size (larger cell size =\> more RNA content =\> more expected
+    UMIs) (less relevant for snRNA-seq).
+
+2.   Sequencing depth, which will have a large random component and can
+    be modelled using a negative binomial distribution.
+
+Let’s look at the expression of a ubiquoulsy expressed gene (GAPDH):
+
+```{r gapdh}
 total_umis <- da_diff.filter$nCount_RNA
-gene <- "MALAT1"
-gene_umi <- GetAssayData(da_diff.filter,layer = "counts")["MALAT1",]
+gene <- "GAPDH"
+gene_umi <- GetAssayData(da_diff.filter,layer = "counts")[gene,]
 
 expressionMatrix <- data.frame("total_cell_umi" = total_umis, "gene_umi" = gene_umi)
 
@@ -357,10 +375,10 @@ ggplot(data = expressionMatrix,
 
 ```
 
-The gene *MALAT1* exhibits an almost linear relationship with a cell's
-sequencing depth. In this case, the "heterogeneity across cells" in
-*Malat1* expression levels is primarily due to differences in sequencing
-depth rather than biological variability, making it less biologically
+The gene exhibits an almost linear relationship with a cell's sequencing
+depth. In this case, the "heterogeneity across cells" in GAPDH
+expression levels is primarily due to differences in sequencing depth
+rather than biological variability, making it less biologically
 interesting.
 
 If all genes exhibited this linear behavior, we could simply account for
@@ -376,15 +394,23 @@ relevant information.
 Instead of regressing out sequencing depth, an alternative approach is
 to use a global scaling factor (e.g., 10,000) to normalize all cells to
 a uniform sequencing depth while accounting for the original sequencing
-depth of each cell. To minimize the influence of outliers, the scaled
-values are log-transformed after adding a pseudocount of 1. In Seurat,
-this normalization can be performed using the `NormalizeData` function:
+depth of each cell. After scaling the data, it’s common to apply a
+log-transformation. The log transformation helps compress the range of
+expression values (reducing the influence of highly expressed genes) and
+stabilizes the variance across genes. However, since many genes in
+scRNA-seq datasets have low or zero expression, you cannot apply the
+logarithm directly to zero values (since log⁡(0)\log(0)log(0) is
+undefined). To address this, a pseudocount (a small constant,
+typically 1) is added to all gene expression values before taking the
+logarithm. This ensures that all values are positive and that the
+log-transformation can be safely applied. In Seurat, this normalization
+can be performed using the `NormalizeData` function:
 
 ```{r normalization}
 # Normalize data
 da_diff.filter <- NormalizeData(da_diff.filter)
 
-gene_umi_normalized <- GetAssayData(da_diff.filter,layer = "data")["MALAT1",]
+gene_umi_normalized <- GetAssayData(da_diff.filter,layer = "data")[gene,]
 
 ggplot(data = data.frame("total_cell_umi" = total_umis,
                          "gene_umi_norm" = gene_umi_normalized), 
@@ -392,7 +418,7 @@ ggplot(data = data.frame("total_cell_umi" = total_umis,
   geom_point() +
   theme_bw(base_size = 14) +
   xlab("Total sequencing depth") +
-  ylab(paste0("Gene UMI(", gene))
+  ylab(paste0("Gene UMI(", gene))+geom_smooth()
   
 ```
 
@@ -408,6 +434,8 @@ it easier to compare cell-to-cell variation and enhancing the
 performance of algorithms used in downstream analyses like
 dimensionality reduction and clustering. Together, these steps improve
 the accuracy and interpretability of scRNA-seq data.
+
+### 4.2 Scaling 
 
 The **ScaleData** function is used to scale and center expression data.
 This process standardizes the data by shifting the distribution of each
@@ -436,7 +464,7 @@ da_diff.filter <- ScaleData(da_diff.filter)
 
 # 5. Dimensionality Reduction and Clustering
 
-### Principal Component Analysis (PCA)
+### 5.1 Principal Component Analysis (PCA)
 
 After quality control, filtering and normalization, the next step in
 single-cell RNA sequencing analysis is usually to explore the structure
@@ -475,7 +503,7 @@ ElbowPlot(da_diff.filter, ndims = 50)
 
 ```
 
-### Clustering and Visualization
+### 5.2 Clustering and Visualization
 
 Once we have a reduced representation of the data from PCA, we proceed
 with clustering to group cells based on their similarity. In this
@@ -501,6 +529,21 @@ Projection (UMAP), which provides a 2D projection of the data,
 preserving local and some global structure in the clustering. The UMAP
 plot provides an intuitive visual of how cells are grouped, making it
 easier to explore potential cell types or states within the dataset.
+However, the UMAP should not be overinterpreted. UMAP performs
+dimensionality reduction, which inherently simplifies the data. While
+this reduction is helpful for visualizing high-dimensional scRNA-seq
+datasets, it inevitably loses some information. Rare cell populations or
+subtle differences between similar cell states may not be adequately
+captured in the UMAP embedding. Unlike principal component analysis
+(PCA), where axes represent specific directions of variance, UMAP’s axes
+are not directly tied to biologically meaningful dimensions. As a
+result, the spatial arrangement of clusters should be interpreted with
+caution. For instance, the distance between clusters in UMAP space does
+not always reflect the true degree of similarity or dissimilarity
+between cell populations. Lastly, UMAP results are influenced by its
+parameters, such as the number of neighbors and the minimum distance.
+These parameters affect the resolution of the embedding and can alter
+the apparent number and shape of clusters.
 
 ```{r clustering}
 #| warning: false
@@ -511,17 +554,26 @@ da_diff.filter <- FindClusters(da_diff.filter, resolution = 0.2)
 
 # Run UMAP for visualization
 da_diff.filter <- RunUMAP(da_diff.filter, dims = 1:20)
-DimPlot(da_diff.filter, reduction = "umap", group.by = "seurat_clusters")+DimPlot(da_diff.filter, group.by = "orig.ident", reduction = "umap",cols = sampleColors)
+DimPlot(da_diff.filter, reduction = "umap", group.by = "seurat_clusters",cols=clusterColors)+
+  DimPlot(da_diff.filter, group.by = "orig.ident", reduction = "umap",cols = sampleColors)
 
 ```
 
-### Integration Using Harmony
+### 5.3 Integration Using Harmony
 
-When analyzing multiple datasets or batches, it’s crucial to account for
-batch effects that can obscure biological signals. The harmony algorithm
-provides an effective approach to integrating data from different
-sources while controlling for these batch effects.
+Batch correction in scRNA-seq is necessary when technical variation
+influences the data, masking biological differences. This is critical if
+samples from different conditions or groups were processed in separate
+batches, as variations in sequencing runs or reagents can introduce
+unwanted noise. Knowing when to apply batch correction depends on the
+experimental design, data structure, and the specific downstream
+analyses planned. Importantly, batch correction should never replace
+proper experimtal design and planning. Running all "treated" samples on
+day 1 and then on day 2 run all "control" samples is an example of poor
+experimental planing.
 
+The harmony algorithm provides an effective approach to integrating data
+from different sources while controlling for these batch effects.
 Harmony works by iteratively adjusting the embeddings of cells in a
 lower-dimensional space, aligning them based on shared biological
 variation while minimizing differences caused by batch effects. This is
@@ -555,7 +607,7 @@ da_integrated <- RunUMAP(da_integrated, reduction = "harmony",
                          dims = 1:30,reduction.name = "umap_harmony")
 
 # Visualize the integrated data
-DimPlot(da_integrated, reduction = "umap_harmony", group.by = "seurat_clusters") +
+DimPlot(da_integrated, reduction = "umap_harmony", group.by = "seurat_clusters", cols=clusterColors) +
 DimPlot(da_integrated, group.by = "orig.ident", reduction = "umap_harmony", cols = sampleColors)
 ```
 
@@ -574,14 +626,16 @@ this issue:
     markers** within the clusters. This method relies on established
     knowledge of well-characterized markers in the field.
 
-2.  **Identify signature or marker genes** for each cell cluster. Once
+2.  **Identify signature or marker genes** for each cell cluster (i.e.
+    running differential expression analysis between clusters). Once
     these genes are determined, literature searches, enrichment
     analyses, or experimental validations can be conducted to further
     refine annotations.
 
 3.  **Compare the gene expression profiles of the clusters** with
-    existing reference datasets. This can provide additional context for
-    identifying the nature of the clusters.
+    existing reference datasets using automated methods. This can
+    provide additional context for identifying the nature of the
+    clusters.
 
 It is important to note that the first method requires prior knowledge
 of the system being studied, including a comprehensive list of accepted
@@ -599,14 +653,15 @@ marker genes have been identified, including:
     critical for identifying dopamine neuron lineage and development.
 -   AQP4, GFAP, EDNRB, GJA1: Markers of astrocytes, essential for
     identifying and studying astrocytic populations.
--   COL1A1, COL1A2: Genes associated with vascular and leptomeningeal
-    cells (VLMCs), playing a role in extracellular matrix formation and
-    support.
+-   COL1A1, COL1A2, LUM: Genes associated with vascular and
+    leptomeningeal cells (VLMCs), playing a role in extracellular matrix
+    formation and support.
 
 These genes serve as a starting point for assessing the identity of
-dopamine neurons in clusters derived from stem cell differentiation.
+midbrain progenitor derivatives in clusters derived from stem cell
+differentiation.
 
-#### Canonical Markers
+#### 6.1 Canonical Markers
 
 ```{r canonical-markers}
 
@@ -640,6 +695,7 @@ for neurogenesis, cell cycle and stress response. We then calculate a
 module score for each cluster and visualize the results.
 
 ```{r module-markers}
+#| warning: false
 # Download gene modules from GO related to neurogenesis, cell cycle and stress
 
 gene_modules <- list(
@@ -650,34 +706,21 @@ gene_modules <- list(
   # Cell cycle
   Cell_Cycle=bitr("GO:0007049", fromType="GOALL", toType="SYMBOL", OrgDb='org.Hs.eg.db') %>% pull("SYMBOL"))
 
-
 for(i in names(gene_modules)) {
   da_integrated <- AddModuleScore(object = da_integrated, 
                                   features = list(gene_modules[[i]]), 
                                   name = i)
 }
 
-
-featureplot.gene_modules <- FeaturePlot(
+# Add module score will add the score in the metadata with the name of the list but append 1 to the name.
+# As we have seen before the VlnPlot function can be used to visualise features in the metadata
+VlnPlot(
     da_integrated,
     features = paste0(names(gene_modules),"1"),
-    pt.size = 1,
-    order  = TRUE,
-    label = TRUE,
-    cols = c("lightgrey", "darkred"),
-    min.cutoff = "q8"
-)
-
-violinplot.gene_modules <- VlnPlot(
-    da_integrated,
-    features = paste0(names(gene_modules),"1"),
-    pt.size = 0)
-
-violinplot.gene_modules / featureplot.gene_modules
-
+    pt.size = 0, cols = clusterColors)
 ```
 
-#### Identifying Marker Genes
+#### 6.2 Identifying Marker Genes
 
 Marker genes are genes that are differentially expressed in specific
 cell populations or clusters and can be used to characterize the
@@ -686,9 +729,26 @@ analysis, marker genes are typically identified by comparing the
 expression levels between clusters of cells, often using statistical
 tests to find genes that are uniquely expressed in particular groups.
 
-Here we will use the Seurat funciton *FindAllMarkers* to identify marker
-genes for each cluster. We will then visualize the top 10 marker genes
-for each cluster using a heatmap.
+Historically, the most common used method has been yhe Wilcoxon test on
+single cells which treats each cell as an independent observation,
+comparing gene expression distributions between clusters. This method is
+sensitive to subtle differences in cell states and does not require
+aggregating data, making it straightforward to implement. However, it
+assumes cells are independent, which can overlook the biological reality
+that cells within the same cluster or sample are correlated. This can
+lead to inflated statistical significance due to the large number of
+cells.
+
+More recentyl, pseudobulk approaches has gained traction. Pseudobulk
+methods aggregate the expression data within each cluster or sample
+before performing differential expression analysis. By treating each
+sample as a unit, pseudobulk analysis accounts for biological
+replication and reduces the impact of technical noise, usually providing
+more robust and reproducible results.
+
+Here we will use the Wilcoxon test as implemented in the Seurat funciton
+*FindAllMarkers* to identify marker genes for each cluster. We will then
+visualize the top 10 marker genes for each cluster using a heatmap.
 
 ```{r markers}
 # Find markers for each cluster
@@ -701,7 +761,7 @@ da_integrated.subsampled.metadata <- da_integrated@meta.data %>% rownames_to_col
 
 
 # top 20 genes per cluster
-da_diff.markers.top <- da_diff.markers %>% group_by(cluster) %>% top_n(10, avg_log2FC) %>% arrange(cluster, avg_log2FC) %>% pull(gene)
+da_diff.markers.top <- da_diff.markers %>% group_by(cluster) %>% top_n(5, avg_log2FC) %>% arrange(cluster, avg_log2FC) %>% pull(gene)
 
 # Heatmap for canonical markers
 da_integrated <- ScaleData(da_integrated, features = da_diff.markers.top)
@@ -709,25 +769,24 @@ DoHeatmap(da_integrated, features = da_diff.markers.top, group.by = "seurat_clus
 
 ```
 
-#### Automated annotation using singleR
+#### 6.3.1 Automated annotation using singleR
 
-In single-cell RNA sequencing (scRNA-seq) studies, identifying cell
-types within a heterogeneous population is a key challenge. One way to
-classify cells is by using reference-based classification methods, which
-rely on prior knowledge of gene expression profiles for known cell
-types. SingleR is a powerful tool for this task, which performs
-reference-based classification of single-cell data by comparing the gene
-expression profiles of the cells in your dataset to a reference dataset
-of annotated cell types.
+The third way that we will try out to classify cells is by using
+reference-based classification methods, which rely on prior knowledge of
+gene expression profiles for known cell types. SingleR is a powerful
+tool for this task, which performs reference-based classification of
+single-cell data by comparing the gene expression profiles of the cells
+in your dataset to a reference dataset of annotated cell types.
 
 In this analysis, we use the LaMannoBrainData reference dataset, which
 contains gene expression data for human embryonic brain cell types, to
-classify cells from a different dataset (da_integrated). The
-classification results are then added to the Seurat object as metadata,
-allowing us to visualize and analyze the cell type predictions.
+classify cells from a different dataset, the data comes from [this
+paper](https://pubmed.ncbi.nlm.nih.gov/27716510/). The classification
+results are then added to the Seurat object as metadata, allowing us to
+visualize and analyze the cell type predictions.
 
 ```{r singler, cache = TRUE}
-# Find markers for each cluster
+# Prepare la manno data set
 la_manno_ref <- LaMannoBrainData(which = "human-embryo")
 logcounts(la_manno_ref) <- log2(counts(la_manno_ref)+1)
 
@@ -741,9 +800,8 @@ singleR_results <- SingleR(
 # Add SingleR predictions as metadata to Seurat object
 da_integrated$SingleR_label <- singleR_results$labels
 
-
 # Visualize SingleR predictions
-DimPlot(da_integrated, group.by = "SingleR_label", reduction = "umap",label = T)
+DimPlot(da_integrated, group.by = "SingleR_label", reduction = "umap_harmony",label = T)
 ```
 
 To further refine the cell type classification, we can filter out cell
@@ -764,12 +822,12 @@ da_integrated$Filtered_SingleR_label <- ifelse(
 )
 
 # UMAP plot with filtered cell types
-DimPlot(da_integrated, group.by = "Filtered_SingleR_label", label = TRUE, na.value = "grey") + 
+DimPlot(da_integrated, group.by = "Filtered_SingleR_label",reduction = "umap_harmony",  label = TRUE, na.value = "grey") + 
     ggtitle("Filtered Cell Type Classification ( > 200 cells)") 
 
 ```
 
-#### Automated annotation using Seurats labeltransfer
+#### 6.3.2 Automated annotation using Seurats labeltransfer
 
 Seurat's Label Transfer function is another method used to transfer cell
 type annotations or other labels from a reference dataset onto a query
@@ -814,7 +872,7 @@ da_integrated$filtered_label_transfer <- ifelse(
 
 
 # Visualize the transferred labels
-DimPlot(da_integrated, group.by = "filtered_label_transfer", reduction = "umap",label = T)+
+DimPlot(da_integrated, group.by = "filtered_label_transfer", reduction = "umap_harmony", label = T)+
   FeaturePlot(da_integrated, features = c("prediction.score.max"),order=T,min.cutoff = "q9")
 ```
 
@@ -822,7 +880,7 @@ DimPlot(da_integrated, group.by = "filtered_label_transfer", reduction = "umap",
 
 # 7. Extras
 
-### Pathway Analysis with clusterProfiler
+### 7.1 Pathway Analysis with clusterProfiler
 
 In this section, we perform pathway enrichment analysis using marker
 genes identified in **Section 6.2**. The **clusterProfiler** package
@@ -866,7 +924,7 @@ dotplot(kegg_results, showCategory = 10) +
 
 ```
 
-### Identifying number of clusters
+### 7.2 Identifying number of clusters
 
 The resolution parameter in Seurat’s FindClusters function controls the
 granularity of clustering, with higher resolutions producing more
@@ -947,10 +1005,10 @@ ggplot(sil_df, aes(x = Cluster, y = Silhouette_Width, fill = Cluster)) +
     x = "Cluster",
     y = "Silhouette Width"
   ) +
-  theme_minimal()
+  theme_minimal()+scale_fill_manual(values = clusterColors)
 ```
 
-### Cell Cycle Analysis
+### 7.3 Cell Cycle Analysis
 
 Cell cycle phase can be a significant source of variation in scRNA-seq
 data, influencing gene expression patterns and clustering results. To
@@ -969,29 +1027,29 @@ scores are low, indicating quiescence or non-dividing status. This
 classification captures cell cycle progression with a straightforward
 scoring comparison.
 
-```{r ccs}
+```{r cca}
 
 # Load predefined cell cycle gene sets from Seurat
 s.genes <- Seurat::cc.genes.updated.2019$s.genes  # Genes associated with S-phase
 g2m.genes <- Seurat::cc.genes.updated.2019$g2m.genes  # Genes associated with G2/M-phase
 
 # Perform cell cycle scoring
-da_diff <- CellCycleScoring(
-  da_diff,                           # Seurat object to classify
+da_integrated <- CellCycleScoring(
+  da_integrated,                           # Seurat object to classify
   s.features = s.genes,              # Gene set for S-phase
   g2m.features = g2m.genes,          # Gene set for G2/M-phase
   set.ident = TRUE                   # Update cell identities based on the predicted phase
 )
 
 # View the resulting cell cycle scores
-head(da_diff@meta.data[, c("S.Score", "G2M.Score", "Phase")])
+head(da_integrated@meta.data[, c("S.Score", "G2M.Score", "Phase")])
 
 # Visualize the distribution of cell cycle phases
-table(da_diff$Phase)                 # Count cells in each phase
-DimPlot(da_diff, group.by = "Phase") # Plot cells grouped by their predicted cell cycle phase
+table(da_integrated$Phase, da_integrated$orig.ident)                 # Count cells in each phase
+DimPlot(da_integrated, group.by = "Phase", reduction = "umap_harmony") # Plot cells grouped by their predicted cell cycle phase
 ```
 
-### Specicies classification
+### 7.4 Species classification
 
 In some scRNA-seq experiments, cells may be derived from multiple
 species, such as human-mouse xenografts. We will start by creating the
@@ -1003,30 +1061,37 @@ graft.data <- Read10X(data.dir = "data/grafts/G1_YZ013_SD_no12/")
 # Remove the "grch38_" prefix from gene names for easier readability
 rownames(graft.data)<-gsub("premRNAGRCH38-","",rownames(graft.data)) 
 # Create a Seurat object with the count data
-graft <- CreateSeuratObject(counts = graft.data, min.cells = 3, min.features = 200)
+graft <- CreateSeuratObject(counts = graft.data, 
+                            min.cells = 3, min.features = 200)
 ```
 
-Next step is to use the 10X classification to assign the cells based on
-the species they belong to.
+Next step is to use the fraction of reads mapping to rat and human
+genome to identify cell types.
 
 ```{r create_multi_species_seu2}
 # Calculate the total counts for Rat-specific features
 # Extract features matching the Rat pattern ("premRNARnor6--") from the "counts" layer and sum them row-wise
-graft$RatCounts <- rowSums(FetchData(graft, vars = grep("^premRNARnor6--", rownames(graft),
-                                                        invert = FALSE, value = TRUE), layer = "counts"))
+
+ratGenes <- grep("^premRNARnor6--", rownames(graft),value = TRUE)
+graft$RatCounts <- rowSums(FetchData(graft, 
+                                     vars = ratGenes, layer = "counts"))
 
 # Calculate the total counts for Human-specific features
 # Extract features NOT matching the Rat pattern ("premRNARnor6--") from the "counts" layer and sum them row-wise
-graft$HumanCounts <- rowSums(FetchData(graft, vars = grep("^premRNARnor6--", rownames(graft),
-                                                          invert = TRUE, value = TRUE), layer = "counts"))
+humanGenes <- grep("^premRNARnor6--",
+                          rownames(graft),
+                          invert = TRUE,
+                          value = TRUE)
+
+graft$HumanCounts <- rowSums(FetchData(graft, vars = humanGenes, layer = "counts"))
 
 # Compute the percentage of counts attributed to Rat-specific features
-graft$PercentRat <- PercentageFeatureSet(graft, pattern = "^premRNARnor6--")
+graft$PercentRat <- PercentageFeatureSet(graft, features = ratGenes)
 
 # Compute the percentage of counts attributed to Human-specific features
 # Use the set of features that do not match the Rat-specific pattern
-graft$PercentHuman <- PercentageFeatureSet(graft, features = 
-                                             grep("^premRNARnor6--", rownames(graft), invert = TRUE))
+graft$PercentHuman <- PercentageFeatureSet(graft,
+                                           features = humanGenes)
 
 # Classify cells into species based on the percentage of Rat-specific features
 graft$Species <- case_when(
