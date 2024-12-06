@@ -6,3 +6,4 @@
 /.quarto/
 scRNAseq-course.rmarkdown
 scRNAseq-course_cache/
+_quarto.yml
