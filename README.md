@@ -64,7 +64,7 @@ devtools::install_github("chris-mcginnis-ucsf/DoubletFinder")
 
 ``` bash
 git clone https://github.com/pettestor/scRNA-seq-1day-course.git
-cd scRNA-seq-analysis
+cd scRNA-seq-1day-course/
 ```
 
 If you dont have git installed you can download the course content by clicking the green "code" button on the top right of this page and selecting "Download ZIP". 
