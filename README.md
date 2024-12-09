@@ -47,7 +47,7 @@ Make sure you have the required R packages installed:
 
 ``` r
 # Install CRAN packages
-install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", "patchwork","devtools", 
+install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", "patchwork", "devtools", 
                    "scRNAseq", "SingleR", "tibble", "viridis", "clusterProfiler"))
 
 # Install Bioconductor packages
@@ -69,7 +69,7 @@ git clone https://github.com/pettestor/scRNA-seq-1day-course.git
 cd scRNA-seq-1day-course/
 ```
 
-If you dont have git installed you can download the course content by clicking the green "code" button on the top right of this page and selecting "Download ZIP". 
+If you dont have git installed you can download the course content by clicking the green "code" button on the top right of this page and select [Download ZIP] or click this [link](https://github.com/pettestor/scRNA-seq-1day-course/archive/refs/heads/main.zip). 
 
 2.  Open the scRNAseq-course.html file in your prefered browser. In R Studio, navigate to the folder where you have the course content, start a new script and follow scRNAseq-course.html.
 
