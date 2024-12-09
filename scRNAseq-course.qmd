@@ -340,7 +340,7 @@ filtering for removal of bad cells?
 
 # 4. Normalization and Scaling
 
-### 4.1 Normalization 
+### 4.1 Normalization
 
 Normalization, finding variable features, and scaling are essential
 preprocessing steps to prepare the data for downstream analysis.
@@ -354,7 +354,7 @@ The total number of UMIs observed for a cell are attributable to
 1.  cell size (larger cell size =\> more RNA content =\> more expected
     UMIs) (less relevant for snRNA-seq).
 
-2.   Sequencing depth, which will have a large random component and can
+2.  Sequencing depth, which will have a large random component and can
     be modelled using a negative binomial distribution.
 
 Let’s look at the expression of a ubiquoulsy expressed gene (GAPDH):
@@ -422,8 +422,7 @@ ggplot(data = data.frame("total_cell_umi" = total_umis,
   
 ```
 
-
-### 4.2 Finding variable features & Scaling 
+### 4.2 Finding variable features & Scaling
 
 Finding variable features identifies genes with significant expression
 variability across cells, which is important because these genes often
@@ -460,7 +459,6 @@ VariableFeaturePlot(da_diff.filter) %>%
 da_diff.filter <- ScaleData(da_diff.filter)
 
 ```
-
 
 ------------------------------------------------------------------------
 
@@ -615,7 +613,29 @@ DimPlot(da_integrated, group.by = "orig.ident", reduction = "umap_harmony", cols
 
 ------------------------------------------------------------------------
 
-# 6. Annotating Clusters
+# 6. Saving your processed object
+
+At this stage, it's a good idea to save your Seurat object. This allows
+you to pick up your analysis directly from this point in the future,
+whether revisiting your project or sharing it with a colleague. To do
+this, we'll save the object as an RDS file. The RDS format is a standard
+way to store R objects, preserving all the data and metadata associated
+with your analysis.
+
+```{r save_rds}
+#| warning: false
+dir.create("processed_data/")
+saveRDS(da_integrated, "processed_data/da_integrated.rds")
+```
+
+To reload the object in the future, you can use the following command:
+
+```{r load_rds}
+# Load the saved Seurat object
+da_integrated <- readRDS("processed_data/da_integrated.rds")
+```
+
+# 7. Annotating Clusters
 
 Clustering cells assigns an identity label to each one, allowing us to
 infer that cells with the same label are similar and likely represent
@@ -663,7 +683,7 @@ These genes serve as a starting point for assessing the identity of
 midbrain progenitor derivatives in clusters derived from stem cell
 differentiation.
 
-#### 6.1 Canonical Markers
+#### 7.1 Canonical Markers
 
 ```{r canonical-markers}
 
@@ -722,7 +742,7 @@ VlnPlot(
     pt.size = 0, cols = clusterColors)
 ```
 
-#### 6.2 Identifying Marker Genes
+#### 7.2 Identifying Marker Genes
 
 Marker genes are genes that are differentially expressed in specific
 cell populations or clusters and can be used to characterize the
@@ -771,7 +791,7 @@ DoHeatmap(da_integrated, features = da_diff.markers.top, group.by = "seurat_clus
 
 ```
 
-#### 6.3.1 Automated annotation using singleR
+#### 7.3.1 Automated annotation using singleR
 
 The third way that we will try out to classify cells is by using
 reference-based classification methods, which rely on prior knowledge of
@@ -829,7 +849,7 @@ DimPlot(da_integrated, group.by = "Filtered_SingleR_label",reduction = "umap_har
 
 ```
 
-#### 6.3.2 Automated annotation using Seurats labeltransfer
+#### 7.3.2 Automated annotation using Seurats labeltransfer
 
 Seurat's Label Transfer function is another method used to transfer cell
 type annotations or other labels from a reference dataset onto a query
@@ -877,7 +897,14 @@ da_integrated$filtered_label_transfer <- ifelse(
 DimPlot(da_integrated, group.by = "filtered_label_transfer", reduction = "umap_harmony", label = T)
 ```
 
-The prediction.score.max in Seurat's label transfer reflects the confidence of a predicted label for a query cell, ranging from 0 (low confidence) to 1 (high confidence). Higher scores indicate a strong match between the query cell and a reference cell type, while lower scores suggest poor matches, potential novel cell types, or technical noise. You can use thresholds to filter low-confidence cells or analyze them further for biological insights. Proper interpretation depends on the quality of the reference dataset and the context of your analysis.
+The prediction.score.max in Seurat's label transfer reflects the
+confidence of a predicted label for a query cell, ranging from 0 (low
+confidence) to 1 (high confidence). Higher scores indicate a strong
+match between the query cell and a reference cell type, while lower
+scores suggest poor matches, potential novel cell types, or technical
+noise. You can use thresholds to filter low-confidence cells or analyze
+them further for biological insights. Proper interpretation depends on
+the quality of the reference dataset and the context of your analysis.
 
 ```{r label_t2}
 
@@ -887,12 +914,12 @@ FeaturePlot(da_integrated, features = c("prediction.score.max"),order=T,min.cuto
 
 ------------------------------------------------------------------------
 
-# 7. Extras
+# 8. Extras
 
-### 7.1 Pathway Analysis with clusterProfiler
+### 8.1 Pathway Analysis with clusterProfiler
 
 In this section, we perform pathway enrichment analysis using marker
-genes identified in **Section 6.2**. The **clusterProfiler** package
+genes identified in **Section 7.2**. The **clusterProfiler** package
 allows us to investigate biological pathways associated with clusters or
 conditions of interest.
 
@@ -933,7 +960,7 @@ dotplot(kegg_results, showCategory = 10) +
 
 ```
 
-### 7.2 Identifying number of clusters
+### 8.2 Identifying number of clusters
 
 The resolution parameter in Seurat’s FindClusters function controls the
 granularity of clustering, with higher resolutions producing more
@@ -1017,7 +1044,7 @@ ggplot(sil_df, aes(x = Cluster, y = Silhouette_Width, fill = Cluster)) +
   theme_minimal()+scale_fill_manual(values = clusterColors)
 ```
 
-### 7.3 Cell Cycle Analysis
+### 8.3 Cell Cycle Analysis
 
 Cell cycle phase can be a significant source of variation in scRNA-seq
 data, influencing gene expression patterns and clustering results. To
@@ -1053,12 +1080,9 @@ da_integrated <- CellCycleScoring(
 # View the resulting cell cycle scores
 head(da_integrated@meta.data[, c("S.Score", "G2M.Score", "Phase")])
 
-# Visualize the distribution of cell cycle phases
-table(da_integrated$Phase, da_integrated$orig.ident)                 # Count cells in each phase
-DimPlot(da_integrated, group.by = "Phase", reduction = "umap_harmony") # Plot cells grouped by their predicted cell cycle phase
 ```
 
-### 7.4 Species classification
+### 8.4 Species classification
 
 In some scRNA-seq experiments, cells may be derived from multiple
 species, such as human-mouse xenografts. We will start by creating the
