@@ -23,16 +23,18 @@ To be able to follow along you need to have a basic understanding of R programmi
     -   Final outlier filtering
 4.  **Normalization and Scaling**
     -   Normalization techniques
-    -   Finding variable features
-    -   Scaling data
+    -   Finding variable features & Scaling data
 5.  **Dimensionality Reduction and Clustering**
     -   Principal Component Analysis (PCA)
     -   Clustering and visualization
     -   Integration using Harmony
-6.  **Annotating Clusters**
+6.  **Saving your processed object**
+7.  **Annotating Clusters**
     -   Canonical markers
     -   Identifying marker genes
-7. **Extras**
+    -   Automated annotation using singleR
+    -   Automated annotation using Seurats labeltransfer
+8. **Extras**
     -   Pathway Analysis with clusterProfiler
     -   Identifying number of clusters
     -   Cell Cycle Analysis
