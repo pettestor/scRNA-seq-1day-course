@@ -8,6 +8,8 @@ This course provides a crash introduction to Single-Cell/Nuclei RNA Sequencing (
 
 To be able to follow along you need to have a basic understanding of R programming and and single cell RNA-seq expression data. Familiarity with R Studio, ggplot2 and dplyr is highly recommended. Also navigating around the file system and loading data will be helpful. [R for Data Science](https://r4ds.hadley.nz/) is a great resource for learning R programming.
 
+This guide does not cover the details of 10X generation library or preprocessing (i.e. CellRanger). For an detailed overview of these steps have a look [here](https://training.galaxyproject.org/training-material/topics/single-cell/tutorials/scrna-preprocessing-tenx/tutorial.html).
+
 ## Contents
 
 1.  **Introduction to Single-Cell RNA Sequencing (scRNA-seq)**
