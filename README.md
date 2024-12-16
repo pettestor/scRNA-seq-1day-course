@@ -71,7 +71,7 @@ cd scRNA-seq-1day-course/
 
 If you dont have git installed you can download the course content by clicking the green "code" button on the top right of this page and select [Download ZIP] or click this [link](https://github.com/pettestor/scRNA-seq-1day-course/archive/refs/heads/main.zip). 
 
-2.  Open the scRNAseq-course.html file in your prefered browser. In R Studio, navigate to the folder where you have the course content, start a new script and follow scRNAseq-course.html.
+2.  Open the scRNAseq-course.html file in your prefered browser. In R Studio, navigate to the folder where you have the course content, start a new script and follow scRNAseq-course.html. You can preview the file [here](https://htmlpreview.github.io/?https://github.com/pettestor/scRNA-seq-1day-course/blob/main/scRNAseq-course.html).
 
 
 ## Author
