@@ -130,8 +130,15 @@ da_diff.data <- Read10X(data.dir = dirs)
 # storing and analyzing single-cell RNA-seq data.
 # - 'min.cells = 3' filters out genes not expressed in at least 3 cells.
 # - 'min.features = 200' filters out cells that have fewer than 200 detected genes.
-da_diff <- CreateSeuratObject(counts = da_diff.data, min.cells = 3, min.features = 200)
+da_diff <- CreateSeuratObject(counts = da_diff.data, min.cells = 0, min.features = 0)
 ```
+
+**Exercise**: In the Cell x Gene expression matrix. What fraction of
+cells are == 0?
+
+::: {.panel .panel-collapse}
+**Answer:** \~92.5% of the cells have 0 counts for all genes.
+:::
 
 ### 3.2 Quality Control
 
