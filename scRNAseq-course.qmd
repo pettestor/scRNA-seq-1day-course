@@ -48,14 +48,14 @@ Before starting, ensure you have the following packages installed:
 
 ```{r setup, eval=FALSE}
 # Install CRAN packages
-install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", "patchwork","devtools", 
-                   "scRNAseq", "SingleR", "tibble", "viridis", "clusterProfiler"))
+install.packages(c("Seurat", "dplyr", "ggplot2", "robustbase", "patchwork", "devtools", 
+                   "tibble", "viridis"))
 
 # Install Bioconductor packages
 if (!requireNamespace("BiocManager", quietly = TRUE)) {
   install.packages("BiocManager")
 }
-BiocManager::install(c("scater", "harmony", "org.Hs.eg.db"))
+BiocManager::install(c("scater", "harmony", "org.Hs.eg.db", "clusterProfiler", "scRNAseq", "SingleR"))
 
 # Install DoubletFinder from GitHub (since it is not available on CRAN)
 devtools::install_github("chris-mcginnis-ucsf/DoubletFinder")
@@ -116,6 +116,12 @@ Seurat object allows for efficient handling of large datasets and
 integration of multi-modal data, such as RNA and protein measurements.
 
 ```{r load-data}
+# Please ensure that your R working directory is set to the location of the data files.
+# to check your working directory use the following command
+# getwd()
+# To move to the directory with the data use the following command
+# setwd("path/to/your/data")
+
 # List all directories within the "data/" directory, excluding the top-level "data/" itself.
 dirs <- list.dirs("data/organoids/")[-1]
 
@@ -230,7 +236,7 @@ da_diff@meta.data %>%
   facet_wrap(~orig.ident) + 
   theme_minimal()
 
-
+# Violin plot of QC metrics, colored by outlier status
 VlnPlot(da_diff, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
         split.by = "is.outlier",
         ncol = 3,pt.size = 0) & scale_fill_manual(values=sampleColors)
@@ -921,9 +927,33 @@ FeaturePlot(da_integrated, features = c("prediction.score.max"),order=T,min.cuto
 
 ------------------------------------------------------------------------
 
-# 8. Extras
+# 8. Interacting with the seurat object
 
-### 8.1 Pathway Analysis with clusterProfiler
+### 8.1 Accessing and Manipulating Data
+
+[IN PROGRRESS]
+
+
+```{r 8_1}
+# Storing all cell names in a vector
+cell_names <- colnames(da_integrated)
+# number of cells
+length(cell_names)
+
+# Storing all gene names in a vector
+gene_names <- rownames(da_integrated)
+
+# Accessing the expression values of a specific gene for all cells
+# raw data
+gene_expression <- da_integrated[["RNA"]]$counts["TH", ]
+# normalised data
+gene_expression <- da_integrated[["RNA"]]$data["TH", ]
+
+```
+
+# 9. Extras
+
+### 9.1 Pathway Analysis with clusterProfiler
 
 In this section, we perform pathway enrichment analysis using marker
 genes identified in **Section 7.2**. The **clusterProfiler** package
@@ -967,7 +997,7 @@ dotplot(kegg_results, showCategory = 10) +
 
 ```
 
-### 8.2 Identifying number of clusters
+### 9.2 Identifying number of clusters
 
 The resolution parameter in Seurat’s FindClusters function controls the
 granularity of clustering, with higher resolutions producing more
@@ -1051,7 +1081,7 @@ ggplot(sil_df, aes(x = Cluster, y = Silhouette_Width, fill = Cluster)) +
   theme_minimal()+scale_fill_manual(values = clusterColors)
 ```
 
-### 8.3 Cell Cycle Analysis
+### 9.3 Cell Cycle Analysis
 
 Cell cycle phase can be a significant source of variation in scRNA-seq
 data, influencing gene expression patterns and clustering results. To
@@ -1089,7 +1119,7 @@ head(da_integrated@meta.data[, c("S.Score", "G2M.Score", "Phase")])
 
 ```
 
-### 8.4 Species classification
+### 9.4 Species classification
 
 In some scRNA-seq experiments, cells may be derived from multiple
 species, such as human-mouse xenografts. We will start by creating the
