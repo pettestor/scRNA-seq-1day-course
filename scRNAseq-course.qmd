@@ -939,13 +939,11 @@ FeaturePlot(da_integrated, features = c("prediction.score.max"),order=T,min.cuto
 ------------------------------------------------------------------------
 
 
-# 9. Extras
+# 8. Extras
 
 
-### 9. Interacting with the seurat object
+### 8.1. Interacting with the seurat object
 The Seurat object is a central data structure that stores single-cell RNA-seq data and associated metadata in an organized manner. Understanding how to access and manipulate the data within this object is crucial for performing custom analyses and visualizations.
-
-### 9.1 Accessing and Manipulating Data
 
 In this section, we explore how to access cell names, gene names, and expression values, as well as metadata and dimensional reduction results.
 
@@ -986,7 +984,7 @@ subset_high_genes <- subset(da_integrated, subset = nFeature_RNA > 2000)
 
 ```
 
-### 9.2 Pathway Analysis with clusterProfiler
+### 8.2 Pathway Analysis with clusterProfiler
 
 In this section, we perform pathway enrichment analysis using marker
 genes identified in **Section 7.3**. The **clusterProfiler** package
@@ -1030,7 +1028,7 @@ dotplot(kegg_results, showCategory = 10) +
 
 ```
 
-### 9.3 Identifying number of clusters
+### 8.3 Identifying number of clusters
 
 The resolution parameter in Seurat’s FindClusters function controls the
 granularity of clustering, with higher resolutions producing more
@@ -1114,7 +1112,7 @@ ggplot(sil_df, aes(x = Cluster, y = Silhouette_Width, fill = Cluster)) +
   theme_minimal()+scale_fill_manual(values = clusterColors)
 ```
 
-### 9.4 Cell Cycle Analysis
+### 8.4 Cell Cycle Analysis
 
 Cell cycle phase can be a significant source of variation in scRNA-seq
 data, influencing gene expression patterns and clustering results. To

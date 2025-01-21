@@ -107,13 +107,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   </ul></li>
   <li><a href="#saving-your-processed-object" id="toc-saving-your-processed-object" class="nav-link" data-scroll-target="#saving-your-processed-object">6. Saving your processed object</a></li>
   <li><a href="#annotating-clusters" id="toc-annotating-clusters" class="nav-link" data-scroll-target="#annotating-clusters">7. Annotating Clusters</a></li>
-  <li><a href="#extras" id="toc-extras" class="nav-link" data-scroll-target="#extras">9. Extras</a>
+  <li><a href="#extras" id="toc-extras" class="nav-link" data-scroll-target="#extras">8. Extras</a>
   <ul class="collapse">
-  <li><a href="#interacting-with-the-seurat-object" id="toc-interacting-with-the-seurat-object" class="nav-link" data-scroll-target="#interacting-with-the-seurat-object">9. Interacting with the seurat object</a></li>
-  <li><a href="#accessing-and-manipulating-data" id="toc-accessing-and-manipulating-data" class="nav-link" data-scroll-target="#accessing-and-manipulating-data">9.1 Accessing and Manipulating Data</a></li>
-  <li><a href="#pathway-analysis-with-clusterprofiler" id="toc-pathway-analysis-with-clusterprofiler" class="nav-link" data-scroll-target="#pathway-analysis-with-clusterprofiler">9.2 Pathway Analysis with clusterProfiler</a></li>
-  <li><a href="#identifying-number-of-clusters" id="toc-identifying-number-of-clusters" class="nav-link" data-scroll-target="#identifying-number-of-clusters">9.3 Identifying number of clusters</a></li>
-  <li><a href="#cell-cycle-analysis" id="toc-cell-cycle-analysis" class="nav-link" data-scroll-target="#cell-cycle-analysis">9.4 Cell Cycle Analysis</a></li>
+  <li><a href="#interacting-with-the-seurat-object" id="toc-interacting-with-the-seurat-object" class="nav-link" data-scroll-target="#interacting-with-the-seurat-object">8.1. Interacting with the seurat object</a></li>
+  <li><a href="#pathway-analysis-with-clusterprofiler" id="toc-pathway-analysis-with-clusterprofiler" class="nav-link" data-scroll-target="#pathway-analysis-with-clusterprofiler">8.2 Pathway Analysis with clusterProfiler</a></li>
+  <li><a href="#identifying-number-of-clusters" id="toc-identifying-number-of-clusters" class="nav-link" data-scroll-target="#identifying-number-of-clusters">8.3 Identifying number of clusters</a></li>
+  <li><a href="#cell-cycle-analysis" id="toc-cell-cycle-analysis" class="nav-link" data-scroll-target="#cell-cycle-analysis">8.4 Cell Cycle Analysis</a></li>
   <li><a href="#species-classification" id="toc-species-classification" class="nav-link" data-scroll-target="#species-classification">9.5 Species classification</a></li>
   </ul></li>
   </ul>
@@ -875,13 +874,10 @@ Elapsed time: 1 seconds</code></pre>
 </section>
 </section>
 <section id="extras" class="level1">
-<h1>9. Extras</h1>
+<h1>8. Extras</h1>
 <section id="interacting-with-the-seurat-object" class="level3">
-<h3 class="anchored" data-anchor-id="interacting-with-the-seurat-object">9. Interacting with the seurat object</h3>
+<h3 class="anchored" data-anchor-id="interacting-with-the-seurat-object">8.1. Interacting with the seurat object</h3>
 <p>The Seurat object is a central data structure that stores single-cell RNA-seq data and associated metadata in an organized manner. Understanding how to access and manipulate the data within this object is crucial for performing custom analyses and visualizations.</p>
-</section>
-<section id="accessing-and-manipulating-data" class="level3">
-<h3 class="anchored" data-anchor-id="accessing-and-manipulating-data">9.1 Accessing and Manipulating Data</h3>
 <p>In this section, we explore how to access cell names, gene names, and expression values, as well as metadata and dimensional reduction results.</p>
 <div class="cell">
 <div class="sourceCode cell-code" id="cb39"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Storing all cell names in a vector</span></span>
@@ -930,7 +926,7 @@ day60-1_AAACGGGAGATGTAAC-1 -3.574621  2.94150370</code></pre>
 </div>
 </section>
 <section id="pathway-analysis-with-clusterprofiler" class="level3">
-<h3 class="anchored" data-anchor-id="pathway-analysis-with-clusterprofiler">9.2 Pathway Analysis with clusterProfiler</h3>
+<h3 class="anchored" data-anchor-id="pathway-analysis-with-clusterprofiler">8.2 Pathway Analysis with clusterProfiler</h3>
 <p>In this section, we perform pathway enrichment analysis using marker genes identified in <strong>Section 7.3</strong>. The <strong>clusterProfiler</strong> package allows us to investigate biological pathways associated with clusters or conditions of interest.</p>
 <div class="cell">
 <div class="sourceCode cell-code" id="cb44"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Filter significant markers for a specific cluster (e.g., Cluster 1)</span></span>
@@ -980,7 +976,7 @@ day60-1_AAACGGGAGATGTAAC-1 -3.574621  2.94150370</code></pre>
 </div>
 </section>
 <section id="identifying-number-of-clusters" class="level3">
-<h3 class="anchored" data-anchor-id="identifying-number-of-clusters">9.3 Identifying number of clusters</h3>
+<h3 class="anchored" data-anchor-id="identifying-number-of-clusters">8.3 Identifying number of clusters</h3>
 <p>The resolution parameter in Seurat’s FindClusters function controls the granularity of clustering, with higher resolutions producing more fine-grained clusters. However, determining the optimal resolution can be challenging, especially when biological relevance is not immediately apparent.</p>
 <p>The clustree package provides a powerful visualization tool to assess how clusters evolve across different resolutions. By creating a tree-like structure, clustree highlights how clusters merge or split as resolution changes, aiding in the identification of biologically meaningful patterns. This section demonstrates how to generate clustering solutions at multiple resolutions and visualize them using clustree.</p>
 <div class="cell">
@@ -1052,7 +1048,7 @@ day60-1_AAACGGGAGATGTAAC-1 -3.574621  2.94150370</code></pre>
 </div>
 </section>
 <section id="cell-cycle-analysis" class="level3">
-<h3 class="anchored" data-anchor-id="cell-cycle-analysis">9.4 Cell Cycle Analysis</h3>
+<h3 class="anchored" data-anchor-id="cell-cycle-analysis">8.4 Cell Cycle Analysis</h3>
 <p>Cell cycle phase can be a significant source of variation in scRNA-seq data, influencing gene expression patterns and clustering results. To account for this, we can use the <strong>CellCycleScoring</strong> function in Seurat to assign a cell cycle phase to each cell based on the expression of cell cycle-related genes. This information can then be used to adjust for cell cycle effects in downstream analyses.</p>
 <p>For each cell, CellCycleScoring calculates the S.Score and G2M.Score by averaging the expression of predefined S-phase and G2/M-phase marker genes, respectively. These scores quantify the activity of phase-specific genes, providing a basis for classification. A cell is assigned to the S-phase if the S.Score exceeds the G2M.Score, to the G2/M-phase if the G2M.Score is higher, and to the G1-phase if both scores are low, indicating quiescence or non-dividing status. This classification captures cell cycle progression with a straightforward scoring comparison.</p>
 <div class="cell">
