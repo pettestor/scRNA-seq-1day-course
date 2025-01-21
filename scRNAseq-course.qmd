@@ -5,6 +5,8 @@ date: "`r Sys.Date()`"
 editor:
   markdown:
     wrap: 72
+execute:
+  warning: false
 format:
   html:
     code-copy: true
@@ -209,7 +211,6 @@ multidimensional detection, identifying cells with unusual combinations
 of metrics rather than focusing on individual values.
 
 ```{r quality-control2}
-#| warning: false
 # Create a matrix of selected statistics from da_diff for analysis
 stats <- cbind(da_diff$percent.mt, da_diff$nFeature_RNA, da_diff$nCount_RNA)
 
@@ -240,8 +241,6 @@ da_diff@meta.data %>%
 VlnPlot(da_diff, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
         split.by = "is.outlier",
         ncol = 3,pt.size = 0) & scale_fill_manual(values=sampleColors)
-
-
 ```
 
 ### 3.3 Doublet Removal
@@ -301,7 +300,6 @@ clarity. Finally we plot the predicted doublet status versus number of
 detected genes.
 
 ```{r}
-#| warning: false
 # Normalize data
 da_diff <- NormalizeData(da_diff)
 da_diff <- FindVariableFeatures(da_diff)
@@ -384,8 +382,6 @@ ggplot(data = expressionMatrix,
   geom_point(alpha=.5) +
   xlab("Total sequencing depth") +
   ylab(paste0("Gene UMI(", gene,")"))+geom_smooth(method = "lm")+theme_bw()
-
-
 ```
 
 The gene exhibits an almost linear relationship with a cell's sequencing
@@ -461,7 +457,6 @@ certain sources of variation, such as mitochondrial gene content, cell
 cycle phase, or other unwanted sources of noise.
 
 ```{r variable_f}
-#| warning: false
 # Identify highly variable features
 da_diff.filter <- FindVariableFeatures(da_diff.filter, nfeatures = 2000)
 
@@ -503,8 +498,6 @@ adding more components provides diminishing returns in variance
 explained.
 
 ```{r pca}
-#| warning: false
-
 # Run PCA
 da_diff.filter <- RunPCA(da_diff.filter, 
                          features = VariableFeatures(object = da_diff.filter),
@@ -559,8 +552,6 @@ These parameters affect the resolution of the embedding and can alter
 the apparent number and shape of clusters.
 
 ```{r clustering}
-#| warning: false
-
 # Find clusters
 da_diff.filter <- FindNeighbors(da_diff.filter, dims = 1:20)
 da_diff.filter <- FindClusters(da_diff.filter, resolution = 0.1)
@@ -609,7 +600,6 @@ and ensuring that biological signals are not overshadowed by batch
 variability.
 
 ```{r harmony-integration}
-#| warning: false
 # Integrate using Harmony
 da_integrated <- RunHarmony(da_diff.filter, group.by.vars = "orig.ident")
 
@@ -620,8 +610,8 @@ da_integrated <- RunUMAP(da_integrated, reduction = "harmony",
                          dims = 1:30,reduction.name = "umap_harmony")
 
 # Visualize the integrated data
-DimPlot(da_integrated, reduction = "umap_harmony", group.by = "seurat_clusters", cols=clusterColors) +
-DimPlot(da_integrated, group.by = "orig.ident", reduction = "umap_harmony", cols = sampleColors)
+DimPlot(da_integrated, reduction = "umap_harmony", group.by = "seurat_clusters", cols=clusterColors, label=T) +
+DimPlot(da_integrated, group.by = "orig.ident", reduction = "umap_harmony", cols = sampleColors,shuffle = T)
 ```
 
 ------------------------------------------------------------------------
@@ -636,8 +626,7 @@ way to store R objects, preserving all the data and metadata associated
 with your analysis.
 
 ```{r save_rds}
-#| warning: false
-dir.create("processed_data/")
+dir.create("processed_data/",showWarnings = F)
 saveRDS(da_integrated, "processed_data/da_integrated.rds")
 ```
 
@@ -672,6 +661,9 @@ this issue:
     provide additional context for identifying the nature of the
     clusters.
 
+#### 7.1 Canonical Markers
+
+
 It is important to note that the first method requires prior knowledge
 of the system being studied, including a comprehensive list of accepted
 markers relevant to the context. For instance, in the context of
@@ -696,7 +688,8 @@ These genes serve as a starting point for assessing the identity of
 midbrain progenitor derivatives in clusters derived from stem cell
 differentiation.
 
-#### 7.1 Canonical Markers
+You have probably seen multiple ways of showing gene expression in scRNA-seq data 
+with the most common being feature plots, dot plots, violin plots and heatmaps.
 
 ```{r canonical-markers}
 
@@ -710,27 +703,45 @@ genes <- c(
   "COL1A1", "COL1A2", "LUM"   # VLMC
 )
 
+# Feature plot for a subset of canonical markers
+FeaturePlot(da_integrated,features = c("TOP2A","NES","STMN2","COL1A1"), reduction = "umap_harmony", order =T)
+
 # Violin plot for canonical markers
+VlnPlot(da_integrated,features = c("TOP2A","NES","STMN2","COL1A1"), ncol = 2,pt.size = 0)
+
+# Dot plot for canonical markers
 DotPlot(da_integrated, features = genes,dot.scale = 8)+
   #Rotate x axis labels
   theme(axis.text.x = element_text(angle = 90, hjust = 1))+
   # Update colors to something prettier
 viridis::scale_color_viridis(direction = -1)
 
+# Heatmap
+# heatmap will use the scaled data slot so we need to make sure that all genes we want to plot have been scaled
+da_integrated <- ScaleData(da_integrated,features = genes)
+DoHeatmap(da_integrated, features = genes)
+
 
 ```
+**Question**: What are the pro and cons of the different ways of plotting? 
+
+**Question**: It's not a bad idea to revisit some of the QC parameters that we look at 
+in the beginning but with a cluster based view? Can you find any clusters with a suspicous profile?
+
+#### 7.2 Gene modules
 
 Instead of looking at one marker at a time we can also create list(s) of
-relevant genes and calculate a module score for each cluster. This can
-help us identify the most relevant genes for each cluster and
-potentially identify new markers.
+relevant genes and calculate a module score for each cluster. AddModuleScore is a function in 
+the Seurat package used for calculating and adding custom gene module scores to a Seurat object. 
+It allows users to evaluate the aggregate expression of predefined sets of genes (modules or signatures) across
+cells. This can help identify whether certain biological pathways or processes are more active in different 
+cell types or clusters.
 
 In this example we are using Gene Ontology terms to create gene modules
 for neurogenesis, cell cycle and stress response. We then calculate a
 module score for each cluster and visualize the results.
 
 ```{r module-markers}
-#| warning: false
 # Download gene modules from GO related to neurogenesis, cell cycle and stress
 
 gene_modules <- list(
@@ -755,7 +766,7 @@ VlnPlot(
     pt.size = 0, cols = clusterColors)
 ```
 
-#### 7.2 Identifying Marker Genes
+#### 7.3 Identifying Marker Genes
 
 Marker genes are genes that are differentially expressed in specific
 cell populations or clusters and can be used to characterize the
@@ -804,7 +815,7 @@ DoHeatmap(da_integrated, features = da_diff.markers.top, group.by = "seurat_clus
 
 ```
 
-#### 7.3.1 Automated annotation using singleR
+#### 7.4.1 Automated annotation using singleR
 
 The third way that we will try out to classify cells is by using
 reference-based classification methods, which rely on prior knowledge of
@@ -862,7 +873,7 @@ DimPlot(da_integrated, group.by = "Filtered_SingleR_label",reduction = "umap_har
 
 ```
 
-#### 7.3.2 Automated annotation using Seurats labeltransfer
+#### 7.4.2 Automated annotation using Seurats labeltransfer
 
 Seurat's Label Transfer function is another method used to transfer cell
 type annotations or other labels from a reference dataset onto a query
@@ -927,36 +938,58 @@ FeaturePlot(da_integrated, features = c("prediction.score.max"),order=T,min.cuto
 
 ------------------------------------------------------------------------
 
-# 8. Interacting with the seurat object
 
-### 8.1 Accessing and Manipulating Data
+# 9. Extras
 
-[IN PROGRRESS]
 
+### 9. Interacting with the seurat object
+The Seurat object is a central data structure that stores single-cell RNA-seq data and associated metadata in an organized manner. Understanding how to access and manipulate the data within this object is crucial for performing custom analyses and visualizations.
+
+### 9.1 Accessing and Manipulating Data
+
+In this section, we explore how to access cell names, gene names, and expression values, as well as metadata and dimensional reduction results.
 
 ```{r 8_1}
 # Storing all cell names in a vector
 cell_names <- colnames(da_integrated)
-# number of cells
+# Number of cells
 length(cell_names)
 
 # Storing all gene names in a vector
 gene_names <- rownames(da_integrated)
 
-# Accessing the expression values of a specific gene for all cells
-# raw data
-gene_expression <- da_integrated[["RNA"]]$counts["TH", ]
-# normalised data
-gene_expression <- da_integrated[["RNA"]]$data["TH", ]
+# Accessing raw expression values of a specific gene across all cells
+# Raw data from the counts layer (sparse matrix) for the TH gene
+gene_expression_raw <- GetAssayData(da_integrated, assay = "RNA", slot = "counts")["TH", ]
+
+# Accessing normalized expression values
+gene_expression_normalized <- GetAssayData(da_integrated, assay = "RNA", slot = "data")["TH", ]
+
+# Accessing metadata for cells
+cell_metadata <- da_integrated@meta.data
+
+# Retrieving a specific metadata column
+nFeature_RNA <- da_integrated$`nFeature_RNA`
+
+# Modifying metadata (adding a new custom metadata column)
+da_integrated$sample_group <- ifelse(da_integrated$orig.ident == "day30-1" | da_integrated$orig.ident == "day30-2", "day30", "day60")
+
+# Accessing dimension reduction embeddings (e.g., UMAP)
+umap_coordinates <- Embeddings(da_integrated, reduction = "umap")
+head(umap_coordinates)
+
+# Subsetting the object to include only cells from a specific cluster
+cluster_subset <- subset(da_integrated, idents = "1")
+
+# Subsetting based on metadata values
+subset_high_genes <- subset(da_integrated, subset = nFeature_RNA > 2000)
 
 ```
 
-# 9. Extras
-
-### 9.1 Pathway Analysis with clusterProfiler
+### 9.2 Pathway Analysis with clusterProfiler
 
 In this section, we perform pathway enrichment analysis using marker
-genes identified in **Section 7.2**. The **clusterProfiler** package
+genes identified in **Section 7.3**. The **clusterProfiler** package
 allows us to investigate biological pathways associated with clusters or
 conditions of interest.
 
@@ -997,7 +1030,7 @@ dotplot(kegg_results, showCategory = 10) +
 
 ```
 
-### 9.2 Identifying number of clusters
+### 9.3 Identifying number of clusters
 
 The resolution parameter in Seurat’s FindClusters function controls the
 granularity of clustering, with higher resolutions producing more
@@ -1081,7 +1114,7 @@ ggplot(sil_df, aes(x = Cluster, y = Silhouette_Width, fill = Cluster)) +
   theme_minimal()+scale_fill_manual(values = clusterColors)
 ```
 
-### 9.3 Cell Cycle Analysis
+### 9.4 Cell Cycle Analysis
 
 Cell cycle phase can be a significant source of variation in scRNA-seq
 data, influencing gene expression patterns and clustering results. To
@@ -1119,7 +1152,7 @@ head(da_integrated@meta.data[, c("S.Score", "G2M.Score", "Phase")])
 
 ```
 
-### 9.4 Species classification
+### 9.5 Species classification
 
 In some scRNA-seq experiments, cells may be derived from multiple
 species, such as human-mouse xenografts. We will start by creating the
@@ -1143,8 +1176,7 @@ genome to identify cell types.
 # Extract features matching the Rat pattern ("premRNARnor6--") from the "counts" layer and sum them row-wise
 
 ratGenes <- grep("^premRNARnor6--", rownames(graft),value = TRUE)
-graft$RatCounts <- rowSums(FetchData(graft, 
-                                     vars = ratGenes, layer = "counts"))
+graft$RatCounts <- colSums(GetAssayData(graft, assay = "RNA", slot = "counts")[ratGenes, ])
 
 # Calculate the total counts for Human-specific features
 # Extract features NOT matching the Rat pattern ("premRNARnor6--") from the "counts" layer and sum them row-wise
@@ -1153,8 +1185,14 @@ humanGenes <- grep("^premRNARnor6--",
                           invert = TRUE,
                           value = TRUE)
 
-graft$HumanCounts <- rowSums(FetchData(graft, vars = humanGenes, layer = "counts"))
+graft$HumanCounts <- colSums(GetAssayData(graft, assay = "RNA", slot = "counts")[humanGenes, ])
+```
 
+**Question**: If we splitted the rat and human counts correctly they should add up to the variable
+`nCount_RNA` what was automatically added to the meta data when we created the Seurat object. Do they?
+
+
+```{r create_multi_species_seu3}
 # Compute the percentage of counts attributed to Rat-specific features
 graft$PercentRat <- PercentageFeatureSet(graft, features = ratGenes)
 
@@ -1167,7 +1205,7 @@ graft$PercentHuman <- PercentageFeatureSet(graft,
 graft$Species <- case_when(
   graft$PercentRat < 20 ~ "Human",   # Less than 20% Rat features indicates a Human cell
   graft$PercentRat > 80 ~ "Rat",     # More than 80% Rat features indicates a Rat cell
-  TRUE ~ "Unknown"                   # Anything in between is classified as "Unknown"
+  TRUE ~ "Unknown/Doublet"                   # Anything in between is classified as "Unknown"
 )
 
 # Generate a scatter plot showing Rat counts vs. Human counts
@@ -1181,6 +1219,6 @@ FeatureScatter(graft, feature1 = "RatCounts", feature2 = "HumanCounts", group.by
 graft.human <- subset(graft, subset = Species == "Human")
 
 # And you can start with QC and so on... 
-
+# Note that this was a sample with very few human cells only used for illustrative purposes...
 
 ```
